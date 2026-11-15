@@ -229,6 +229,7 @@ A full step-by-step tutorial with copy-ready prompts is available in [`docs/quic
 
 - [Install from PyPI](https://pypi.org/project/devray-datalab-mcp/)
 - [MCP Registry listing](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.rayklanderman%2Fdevray-datalab-mcp)
+- [Glama listing](https://glama.ai/mcp/servers/rayklanderman/devray-datalab-mcp)
 - [Source code](https://github.com/rayklanderman/devray-datalab-mcp)
 - [Issues](https://github.com/rayklanderman/devray-datalab-mcp/issues)
 - [Release notes](https://github.com/rayklanderman/devray-datalab-mcp/releases/tag/v0.1.0)
