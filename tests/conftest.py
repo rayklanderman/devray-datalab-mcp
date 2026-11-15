@@ -1,0 +1,55 @@
+"""Pytest configuration and fixtures for DevRay DataLab MCP tests."""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import pytest
+
+from devray_datalab.config import DevRayConfig
+
+
+@pytest.fixture
+def config(tmp_path: Path) -> DevRayConfig:
+    """A DevRayConfig using a temporary workspace and artifacts dir."""
+    workspace = tmp_path / "workspace"
+    artifacts = tmp_path / "artifacts"
+    workspace.mkdir()
+    artifacts.mkdir()
+    # Use monkeypatch-free env via direct env var override for the duration.
+    import os
+
+    old_ws = os.environ.get("DEVRAY_WORKSPACE_DIR")
+    old_ar = os.environ.get("DEVRAY_ARTIFACTS_DIR")
+    os.environ["DEVRAY_WORKSPACE_DIR"] = str(workspace)
+    os.environ["DEVRAY_ARTIFACTS_DIR"] = str(artifacts)
+    cfg = DevRayConfig()
+    yield cfg
+    if old_ws is None:
+        os.environ.pop("DEVRAY_WORKSPACE_DIR", None)
+    else:
+        os.environ["DEVRAY_WORKSPACE_DIR"] = old_ws
+    if old_ar is None:
+        os.environ.pop("DEVRAY_ARTIFACTS_DIR", None)
+    else:
+        os.environ["DEVRAY_ARTIFACTS_DIR"] = old_ar
+
+
+@pytest.fixture
+def example_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "examples"
+
+
+@pytest.fixture
+def classification_csv(config: DevRayConfig, example_dir: Path) -> Path:
+    dest = config.workspace_dir / "sample_classification.csv"
+    shutil.copy(example_dir / "sample_classification.csv", dest)
+    return dest
+
+
+@pytest.fixture
+def regression_csv(config: DevRayConfig, example_dir: Path) -> Path:
+    dest = config.workspace_dir / "sample_regression.csv"
+    shutil.copy(example_dir / "sample_regression.csv", dest)
+    return dest
