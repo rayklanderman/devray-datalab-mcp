@@ -16,7 +16,7 @@ registries. Status values are never claimed unless verified.
 
 | Directory | Submission URL | Listing URL | Date | Status | Auth required | Next action |
 |---|---|---|---|---|---|---|
-| Glama (glama.ai/mcp/servers) | — | — | — | Pending authentication | Sign-in required | Review submission requirements; "Add Server" available after auth |
+| Glama (glama.ai/mcp/servers) | https://glama.ai/mcp/servers/rayklanderman/devray-datalab-mcp | https://glama.ai/mcp/servers/rayklanderman/devray-datalab-mcp | 2026-11-15 | Published | Sign-in (for edits) | Badge added to README; listing live |
 | Awesome MCP Servers (punkpeye/awesome-mcp-servers) | https://github.com/punkpeye/awesome-mcp-servers/pull/19618 | — | 2026-11-15 | Submitted | Fork + PR | PR #19618 open, awaiting maintainer review |
 | MCP.so (mcp.so/submit) | — | — | — | Not submitted (paid) | Payment | $39 one-time fee for immediate publishing; declined per no-paid-submissions policy |
 | Docker MCP Catalog (docker/mcp-registry) | — | — | — | Not eligible* | — | Docker packaging not required for stdio |
