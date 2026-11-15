@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . "pytest>=8" "ruff>=0.10"
+
+      - name: Run Ruff lint
+        run: ruff check src/ tests/
+
+      - name: Run Ruff format check
+        run: ruff format --check src/ tests/
+
+      - name: Run Pytest suite
+        run: pytest
+
+      - name: Build distributions
+        run: |
+          pip install build
+          python -m build
+
+      - name: Validate package metadata
+        run: |
+          pip install twine
+          twine check dist/*
+
+      - name: Clean install from wheel
+        shell: bash
+        run: |
+          WHEEL=$(ls dist/*.whl | head -1)
+          VENV_DIR="${{ runner.temp }}/devray-venv"
+          python -m venv "$VENV_DIR"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            PY="$VENV_DIR/Scripts/python.exe"
+          else
+            PY="$VENV_DIR/bin/python"
+          fi
+          "$PY" -m pip install --upgrade pip
+          "$PY" -m pip install "$WHEEL"
+          echo "VENV_PY=$PY" >> $GITHUB_ENV
+
+      - name: Confirm CLI starts
+        shell: bash
+        run: |
+          "${{ env.VENV_PY }}" -m devray_datalab.server --help
+
+      - name: MCP client integration test
+        run: pytest tests/test_e2e.py
