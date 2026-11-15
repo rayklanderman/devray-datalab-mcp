@@ -331,6 +331,30 @@ Using `sample_classification.csv` (target `purchased`, binary classification):
 6. **Predict** on new data:
    `predict` with `{"artifact_name": "churn_model", "features": {...}}`.
 
+### Example regression workflow
+
+Using `sample_regression.csv` (target `spend`, numeric target):
+
+1. **Inspect** the dataset:
+   `inspect_dataset` with `{"name": "sample_regression.csv"}`.
+2. **Check data quality**:
+   `analyze_data_quality` with `{"name": "sample_regression.csv"}`.
+3. **Check correlations**:
+   `analyze_correlations` with `{"name": "sample_regression.csv", "method": "pearson"}`.
+4. **Train & compare** models:
+   `compare_models` with `{"name": "sample_regression.csv", "target_column": "spend", "task_type": "regression", "metric": "r2"}`.
+5. **Export** the best model:
+   `export_model` with `{"artifact_name": "spend_model", "name": "sample_regression.csv", "target_column": "spend", "task_type": "regression", "model_name": "random_forest"}`.
+6. **Predict** spend on new data:
+   `predict` with `{"artifact_name": "spend_model", "features": {...}}`.
+
+## Release links
+
+- **GitHub repository:** https://github.com/rayklanderman/devray-datalab-mcp
+- **GitHub releases:** https://github.com/rayklanderman/devray-datalab-mcp/releases
+- **PyPI package:** https://pypi.org/project/devray-datalab-mcp/
+
+
 ## Example prompts
 
 - "Inspect the sample_classification.csv dataset and tell me about missing values and column types."
