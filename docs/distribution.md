@@ -17,7 +17,7 @@ registries. Status values are never claimed unless verified.
 | Directory | Submission URL | Listing URL | Date | Status | Auth required | Next action |
 |---|---|---|---|---|---|---|
 | Glama (glama.ai/mcp/servers) | — | — | — | Pending authentication | Sign-in required | Review submission requirements; "Add Server" available after auth |
-| Awesome MCP Servers (punkpeye/awesome-mcp-servers) | — | — | — | Not submitted | — | Fork + PR per contributing guidelines |
+| Awesome MCP Servers (punkpeye/awesome-mcp-servers) | https://github.com/punkpeye/awesome-mcp-servers/pull/19618 | — | 2026-11-15 | Submitted | Fork + PR | PR #19618 open, awaiting maintainer review |
 | MCP.so (mcp.so/submit) | — | — | — | Not submitted (paid) | Payment | $39 one-time fee for immediate publishing; declined per no-paid-submissions policy |
 | Docker MCP Catalog (docker/mcp-registry) | — | — | — | Not eligible* | — | Docker packaging not required for stdio |
 | mcpservers.org | — | — | — | Not submitted | — | Verify submission availability |
