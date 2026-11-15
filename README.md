@@ -12,8 +12,8 @@
 <!-- mcp-name: io.github.rayklanderman/devray-datalab-mcp -->
 
 DevRay DataLab MCP is a local-first Model Context Protocol (MCP) server that lets AI assistants
-such as Claude, Cursor, Cline, and Kilo Code perform **real** data science and machine learning
-on your own computer — no cloud services, no API keys, no paid subscriptions.
+such as Claude, Cursor, Cline, Kilo Code, and **OpenAI Codex** perform **real** data science and
+machine learning on your own computer — no cloud services, no API keys, no paid subscriptions.
 
 Everything runs locally via stdio: dataset loading, exploratory data analysis, preprocessing,
 classification/regression training, model comparison, export, and prediction. Your datasets
@@ -132,6 +132,69 @@ Add to your VS Code MCP settings (`settings.json`):
   }
 }
 ```
+
+## Install in OpenAI Codex (CLI & VS Code)
+
+DevRay DataLab MCP can be connected to the OpenAI Codex CLI (and its VS Code extension) through
+local stdio execution. Codex and its VS Code extension share configuration, so registering the
+server once makes it available in both.
+
+### Prerequisites
+
+- Install the [Codex CLI](https://github.com/openai/codex) (`codex` on PATH).
+- Install [uv](https://github.com/astral-sh/uv) (provides `uvx`).
+- Create the dataset and artifact directories before registering:
+
+```powershell
+New-Item -ItemType Directory -Force "C:\MLData\datasets","C:\MLData\artifacts"
+Copy-Item "examples\sample_classification.csv" "C:\MLData\datasets\"
+```
+
+### Register the server
+
+```powershell
+codex mcp add devray-datalab `
+  --env DEVRAY_WORKSPACE_DIR=C:\MLData\datasets `
+  --env DEVRAY_ARTIFACTS_DIR=C:\MLData\artifacts `
+  -- uvx --from devray-datalab-mcp devray-datalab-mcp
+```
+
+- `DEVRAY_WORKSPACE_DIR` — directory containing your CSV datasets.
+- `DEVRAY_ARTIFACTS_DIR` — directory where trained model artifacts are saved.
+- Replace `C:\MLData` with your own paths.
+
+### Verify registration
+
+```powershell
+codex mcp list
+codex mcp get devray-datalab
+```
+
+Expected output shows `enabled: true`, `transport: stdio`, `command: uvx`, and the `devray-datalab-mcp` args.
+
+### Manual `config.toml` configuration
+
+Codex also reads `~/.codex/config.toml` (Windows: `%USERPROFILE%\.codex\config.toml`):
+
+```toml
+[mcp_servers.devray-datalab]
+command = "uvx"
+args = ["--from", "devray-datalab-mcp", "devray-datalab-mcp"]
+
+[mcp_servers.devray-datalab.env]
+DEVRAY_WORKSPACE_DIR = "C:/MLData/datasets"
+DEVRAY_ARTIFACTS_DIR = "C:/MLData/artifacts"
+```
+
+Codex CLI and its VS Code extension share this configuration. Register once, use everywhere.
+
+### Example prompts for Codex
+
+- **Dataset exploration:** "Use DevRay DataLab MCP to inspect sample_classification.csv, summarize its structure, identify missing values, and report potential data-quality issues."
+- **Machine learning:** "Use DevRay DataLab MCP to train and evaluate classification models for predicting purchased. Compare appropriate metrics and recommend the best model based on validation performance."
+- **Prediction:** "Use DevRay DataLab MCP to load my exported churn_model and generate predictions for new records."
+
+A dedicated guide is available in [`docs/codex-integration.md`](docs/codex-integration.md).
 
 ## Available tools
 
