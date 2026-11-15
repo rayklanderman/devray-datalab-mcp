@@ -1,0 +1,29 @@
+{
+  "name": "devray-datalab-mcp",
+  "displayName": "DevRay DataLab MCP",
+  "description": "Local-first data science and machine learning MCP server. Enables AI assistants to perform exploratory data analysis and train/evaluate machine learning models entirely on the user's own computer via stdio transport. No cloud services, API keys, or paid subscriptions required.",
+  "version": "0.1.0",
+  "repository": "https://github.com/rayklanderman/devray-datalab-mcp",
+  "package": {
+    "registry": "pypi",
+    "name": "devray-datalab-mcp",
+    "version": "0.1.0"
+  },
+  "server": {
+    "type": "stdio",
+    "command": "devray-datalab-mcp",
+    "args": []
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "data-science",
+    "machine-learning",
+    "scikit-learn",
+    "local"
+  ],
+  "categories": [
+    "data-science",
+    "machine-learning"
+  ]
+}

@@ -1,5 +1,7 @@
 # DevRay DataLab MCP
 
+<!-- mcp-name: io.github.rayklanderman/devray-datalab-mcp -->
+
 A local-first, open-source Model Context Protocol (MCP) server for data science
 and machine learning. It lets AI assistants (Claude, Cursor, Cline, Kilo Code,
 and other MCP-compatible clients) perform real exploratory data analysis and
@@ -95,30 +97,82 @@ devray-datalab-mcp/
 
 Python 3.11+ (tested with 3.15).
 
-### Windows PowerShell installation
+### Installation methods
+
+Choose one of the following:
+
+#### Option A: Run directly with `uvx` (no install)
 
 ```powershell
-# 1. Create and activate a virtual environment
+uvx devray-datalab-mcp
+```
+
+#### Option B: Install from PyPI into a virtual environment (recommended)
+
+```powershell
+# Windows PowerShell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
+pip install devray-datalab-mcp
+devray-datalab-mcp
+```
 
-# 2. Install the package (editable) and dev tools
+```bash
+# Linux / macOS
+python3 -m venv .venv
+source .venv/bin/activate
+pip install devray-datalab-mcp
+devray-datalab-mcp
+```
+
+#### Option C: Install from GitHub source
+
+```powershell
+# Windows PowerShell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install git+https://github.com/rayklanderman/devray-datalab-mcp.git
+devray-datalab-mcp
+```
+
+```bash
+# Linux / macOS
+python3 -m venv .venv
+source .venv/bin/activate
+pip install git+https://github.com/rayklanderman/devray-datalab-mcp.git
+devray-datalab-mcp
+```
+
+#### Option D: Editable install from a local clone (development)
+
+```powershell
+# Windows PowerShell
+git clone https://github.com/rayklanderman/devray-datalab-mcp.git
+cd devray-datalab-mcp
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -e .
 pip install pytest ruff
-
-# 3. Run the MCP server
-devray-datalab-mcp
-# or with custom directories:
 devray-datalab-mcp --workspace ./datasets --artifacts ./artifacts
 ```
 
-### Linux / macOS
-
 ```bash
+# Linux / macOS
+git clone https://github.com/rayklanderman/devray-datalab-mcp.git
+cd devray-datalab-mcp
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 pip install pytest ruff
+devray-datalab-mcp --workspace ./datasets --artifacts ./artifacts
+```
+
+### Exact Windows PowerShell installation commands
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install devray-datalab-mcp
 devray-datalab-mcp
 ```
 
@@ -141,7 +195,14 @@ Configuration via environment variables (see `.env.example`):
 The server speaks MCP over stdio. Logging/diagnostics go to stderr, so stdout
 is reserved for MCP protocol messages.
 
-### Example client configuration (Claude Desktop / Cursor / Cline / Kilo Code)
+### Example client configuration
+
+The server speaks MCP over stdio. Logging/diagnostics go to stderr, so stdout
+is reserved for MCP protocol messages. Replace `C:\path\to\project` with your
+actual project directory, or use the published `devray-datalab-mcp` command
+when installed from PyPI.
+
+#### Kilo Code
 
 ```json
 {
@@ -159,6 +220,49 @@ is reserved for MCP protocol messages.
 }
 ```
 
+#### Cline / Cursor / Claude Desktop
+
+These clients use the same `mcpServers` JSON structure:
+
+```json
+{
+  "mcpServers": {
+    "devray-datalab": {
+      "command": "devray-datalab-mcp",
+      "args": [],
+      "env": {
+        "DEVRAY_WORKSPACE_DIR": "C:\\path\\to\\project\\datasets",
+        "DEVRAY_ARTIFACTS_DIR": "C:\\path\\to\\project\\artifacts"
+      }
+    }
+  }
+}
+```
+
+When using the published `devray-datalab-mcp` command (installed from PyPI or
+`uvx`), omit `cwd` and let the client resolve the executable from PATH. Set
+`DEVRAY_WORKSPACE_DIR`/`DEVRAY_ARTIFACTS_DIR` to absolute paths outside the
+project if you prefer dedicated dataset/artifact directories.
+
+#### VS Code MCP-compatible tooling
+
+Add the server to your VS Code MCP settings (`settings.json`):
+
+```json
+{
+  "mcp.servers": {
+    "devray-datalab": {
+      "command": "devray-datalab-mcp",
+      "args": [],
+      "env": {
+        "DEVRAY_WORKSPACE_DIR": "${workspaceFolder}/datasets",
+        "DEVRAY_ARTIFACTS_DIR": "${workspaceFolder}/artifacts"
+      }
+    }
+  }
+}
+```
+
 ### MCP Inspector
 
 The official MCP Inspector can be used to test the server:
@@ -166,8 +270,29 @@ The official MCP Inspector can be used to test the server:
 ```bash
 npx @modelcontextprotocol/inspector
 # Connect to: devray-datalab-mcp (stdio)
-# Command: <venv python> -m devray_datalab.server
+# Command: devray-datalab-mcp
 ```
+
+### Dataset workspace configuration
+
+Designate authorized local directories for datasets and model artifacts using
+environment variables:
+
+- `DEVRAY_WORKSPACE_DIR` -- directory containing CSV datasets (default: `datasets`).
+- `DEVRAY_ARTIFACTS_DIR` -- directory where trained model artifacts are stored (default: `artifacts`).
+
+Both directories are created automatically if missing. All file access is
+confined to these directories; path traversal is blocked. Point them at absolute
+paths outside your project if you want a shared workspace across clients.
+
+Example (PowerShell):
+
+```powershell
+$env:DEVRAY_WORKSPACE_DIR="C:\ml-data\datasets"
+$env:DEVRAY_ARTIFACTS_DIR="C:\ml-data\artifacts"
+devray-datalab-mcp
+```
+
 
 ## Available tools and example arguments
 
@@ -253,6 +378,23 @@ Using `sample_classification.csv` (target `purchased`, binary classification):
 - Additional models (SVM, k-NN, gradient boosting).
 - More preprocessing options and feature selection.
 - Dataset profiling and automated preprocessing recommendations.
+
+## Versioning and release notes
+
+The project follows [semantic versioning](https://semver.org/). The current
+release is `v0.1.0`. Releases are published to PyPI as
+`devray-datalab-mcp` and registered in the MCP Registry as
+`io.github.rayklanderman/devray-datalab-mcp`.
+
+### v0.1.0 (initial release)
+
+- Ten MCP tools: list_datasets, inspect_dataset, analyze_correlations,
+  analyze_data_quality, prepare_dataset, train_baseline, compare_models,
+  export_model, predict, system_info.
+- Local-first stdio transport; scikit-learn CPU training.
+- Path-traversal protection, dataset size/extension validation.
+- 31 automated tests including a stdio end-to-end client test.
+- GitHub Actions CI/CD and PyPI Trusted Publishing workflows.
 
 ## Contributing
 

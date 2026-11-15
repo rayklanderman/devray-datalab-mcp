@@ -9,7 +9,7 @@ description = "Local-first data science and machine learning MCP server"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "DevRay DataLab" }]
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 dependencies = [
     "mcp>=2.0,<3",
     "pandas>=2.0",
