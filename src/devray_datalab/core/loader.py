@@ -16,6 +16,36 @@ from devray_datalab.utils.validation import (
 )
 
 
+def _read_parquet(path: Path) -> pd.DataFrame:
+    try:
+        import pyarrow  # noqa: F401  (engine availability check)
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise DatasetError(
+            "Parquet support requires the optional 'pyarrow' package. "
+            "Install with: pip install 'devray-datalab-mcp[parquet]'"
+        ) from exc
+    return pd.read_parquet(path)
+
+
+def _read_excel(path: Path) -> pd.DataFrame:
+    try:
+        import openpyxl  # noqa: F401  (engine availability check)
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise DatasetError(
+            "Excel support requires the optional 'openpyxl' package. "
+            "Install with: pip install 'devray-datalab-mcp[excel]'"
+        ) from exc
+    return pd.read_excel(path)
+
+
+DATASET_READERS: dict[str, Any] = {
+    ".csv": lambda p: pd.read_csv(p),
+    ".parquet": _read_parquet,
+    ".xlsx": _read_excel,
+    ".xls": _read_excel,
+}
+
+
 def list_datasets(workspace: Path) -> list[dict[str, Any]]:
     """List datasets in the workspace with filenames, formats, and sizes."""
     if not workspace.is_dir():
@@ -25,7 +55,7 @@ def list_datasets(workspace: Path) -> list[dict[str, Any]]:
     for entry in sorted(workspace.iterdir()):
         if not entry.is_file():
             continue
-        if entry.suffix.lower() not in (".csv",):
+        if entry.suffix.lower() not in DATASET_READERS:
             continue
         try:
             stat = entry.stat()
@@ -43,12 +73,25 @@ def list_datasets(workspace: Path) -> list[dict[str, Any]]:
 
 
 def load_dataset(config: DevRayConfig, name: str) -> pd.DataFrame:
-    """Load a CSV dataset from the workspace, validating path and size."""
+    """Load a dataset from the workspace, validating path and size.
+
+    Supports CSV, Parquet, and Excel (.xlsx/.xls) formats. Parquet and Excel
+    require optional dependencies ('pyarrow' / 'openpyxl').
+    """
     path = validate_dataset_path(config.workspace_dir, name, must_exist=True)
     validate_file_size(path, config.max_dataset_size_bytes)
 
+    ext = path.suffix.lower()
+    reader = DATASET_READERS.get(ext)
+    if reader is None:
+        raise DatasetError(
+            f"Unsupported file extension '{ext}'. Supported: .csv, .parquet, .xlsx, .xls"
+        )
+
     try:
-        df = pd.read_csv(path)
+        df = reader(path)
+    except DatasetError:
+        raise
     except Exception as exc:  # noqa: BLE001 - surface a clear dataset error
         raise DatasetError(f"Failed to load dataset '{name}': {exc}") from exc
 

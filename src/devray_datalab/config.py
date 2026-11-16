@@ -58,6 +58,11 @@ class DevRayConfig:
     max_concurrent_jobs: int = _env_int("DEVRAY_MAX_CONCURRENT_JOBS", 1)
     training_timeout_seconds: int = _env_int("DEVRAY_TRAINING_TIMEOUT_SECONDS", 1800)
 
+    # Experiment tracking.
+    experiments_db_path: Path = field(
+        default_factory=lambda: Path(_env_devray("DEVRAY_EXPERIMENTS_DB_PATH", "experiments.db"))
+    )
+
     # Logging.
     log_level: str = _env_str("DEVRAY_LOG_LEVEL", "INFO")
 

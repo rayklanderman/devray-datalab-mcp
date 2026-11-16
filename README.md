@@ -207,10 +207,52 @@ A dedicated guide is available in [`docs/codex-integration.md`](docs/codex-integ
 | `analyze_data_quality` | Missing values, duplicates, constants, outliers, recommendations |
 | `prepare_dataset` | Define target + task type; fit preprocessing on train data only |
 | `train_baseline` | Train a classification or regression model |
-| `compare_models` | Compare multiple algorithms; select best by metric |
+| `compare_models` | Compare multiple algorithms; select best by metric (with cross-validation) |
 | `export_model` | Save model with pipeline, metadata, and schema |
 | `predict` | Generate predictions from a saved local model |
 | `system_info` | CPU, RAM, storage, GPU detection |
+| `list_experiments` | List recorded training experiments, newest first |
+| `get_experiment` | Get a single recorded experiment by ID |
+| `compare_experiments` | Compare multiple recorded experiments by ID |
+| `list_models` | List experiments that produced a model artifact |
+| `load_model_handle` | Load a previously exported model artifact by experiment ID or name |
+| `start_training_job` | Submit a training job (non-blocking); returns a job id |
+| `get_training_status` | Return the status and result of a training job |
+| `cancel_training_job` | Request cancellation of a queued or running training job |
+| `list_training_jobs` | List training jobs, newest first |
+| `automl_run` | Run automated ML: train candidates with CV, rank by objective |
+| `tune_model` | Tune hyperparameters of a single model with cross-validation |
+| `get_model_leaderboard` | Return the ranked leaderboard of an AutoML run |
+| `create_split_manifest` | Create a reproducible train/validation/test split manifest |
+| `validate_split_manifest` | Validate a stored split manifest against a dataset |
+| `list_split_manifests` | List all stored split manifests, newest first |
+| `detect_potential_leakage` | Flag potential data-leakage issues in a dataset |
+| `analyze_feature_drift` | Detect feature drift between reference and current datasets |
+
+## Supported algorithms
+
+Classification: Logistic Regression, Decision Tree, Random Forest, Extra Trees, HistGradientBoosting, SVM, K-Nearest Neighbors.
+
+Regression: Linear Regression, Ridge Regression, Decision Tree, Random Forest, Extra Trees, HistGradientBoosting, SVM, K-Nearest Neighbors.
+
+Additional models (XGBoost, LightGBM) are available via the optional `devray-datalab-mcp[boosting]` extra.
+
+## What's new in v0.3.0
+
+- **Non-blocking training jobs**: `start_training_job`, `get_training_status`, `cancel_training_job`, `list_training_jobs` — training runs off the MCP request loop with cooperative cancellation.
+- **Automated Machine Learning**: `automl_run`, `tune_model`, `get_model_leaderboard` — train candidates with CV, rank by objective, and optionally tune with Optuna.
+- **More dataset formats**: Parquet (`.parquet`) and Excel (`.xlsx`/`.xls`) via optional `[parquet]`/`[excel]` dependencies.
+- **Reproducible split manifests**: `create_split_manifest`, `validate_split_manifest`, `list_split_manifests` — stratified/group/time-ordered splits with dataset fingerprints; test set is a protected holdout.
+- **Feature diagnostics**: `detect_potential_leakage`, `analyze_feature_drift` — flag potential target leakage and distribution drift.
+
+## What's new in v0.2.0
+
+- **Real cross-validation**: `compare_models` now performs actual cross-validation (the `cv` parameter was previously ignored). Preprocessing is fitted independently inside each fold to prevent data leakage. Strategies: KFold, StratifiedKFold, GroupKFold, StratifiedGroupKFold, TimeSeriesSplit.
+- **Richer metrics**: balanced accuracy, macro/weighted F1, PR-AUC, log loss, Brier score, confusion matrix (classification); median absolute error, MAPE (regression).
+- **Calibration**: probability calibration with sigmoid or isotonic methods.
+- **Threshold optimization**: maximize F1/precision/recall or minimize a cost matrix, with optional precision/recall constraints.
+- **Feature importance**: permutation importance with baseline score and per-feature mean/std.
+- **Experiment tracking**: SQLite-backed recording of training runs (dataset fingerprint, feature schema, algorithm, hyperparameters, library versions, metrics, duration, artifacts). Tools: `list_experiments`, `get_experiment`, `compare_experiments`, `list_models`, `load_model_handle`.
 
 ## Quickstart workflow
 

@@ -77,7 +77,7 @@ def test_train_baseline_invalid_model(config, classification_csv):
                 "name": "sample_classification.csv",
                 "target_column": "purchased",
                 "task_type": "classification",
-                "model_name": "svm",
+                "model_name": "nonexistent_model",
             },
         )
     )

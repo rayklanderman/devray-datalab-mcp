@@ -27,6 +27,8 @@ build/
 # Data and artifacts (local runtime outputs)
 datasets/*.csv
 artifacts/
+*.db
+experiments.db
 
 # pytest
 .pytest_cache/

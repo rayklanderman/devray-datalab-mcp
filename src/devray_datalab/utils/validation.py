@@ -14,7 +14,7 @@ from typing import Final
 from devray_datalab.utils.errors import DatasetError, SecurityError, ValidationError
 
 # Allowed dataset file extensions.
-ALLOWED_DATASET_EXTENSIONS: Final[tuple[str, ...]] = (".csv",)
+ALLOWED_DATASET_EXTENSIONS: Final[tuple[str, ...]] = (".csv", ".parquet", ".xlsx", ".xls")
 
 # Maximum dataset file size in bytes (200 MB by default).
 MAX_DATASET_SIZE_BYTES: Final[int] = 200 * 1024 * 1024
@@ -122,17 +122,37 @@ def validate_task_type(task_type: str) -> str:
     return task_type
 
 
-def validate_model_name(model_name: str) -> str:
+def validate_model_name(model_name: str, task_type: str | None = None) -> str:
     """Validate a supported baseline model name."""
-    valid = (
+    classification = (
         "logistic_regression",
         "decision_tree",
         "random_forest",
+        "extra_trees",
+        "hist_gradient_boosting",
+        "svm",
+        "knn",
+    )
+    regression = (
         "linear_regression",
         "ridge_regression",
+        "decision_tree",
+        "random_forest",
+        "extra_trees",
+        "hist_gradient_boosting",
+        "svm",
+        "knn",
     )
+    valid = classification if task_type == "classification" else regression
+    if task_type and task_type not in ("classification", "regression"):
+        raise ValidationError(
+            f"Invalid task type '{task_type}'. Must be 'classification' or 'regression'."
+        )
     if model_name not in valid:
-        raise ValidationError(f"Unsupported model '{model_name}'. Supported: {', '.join(valid)}.")
+        raise ValidationError(
+            f"Unsupported model '{model_name}' for {task_type or 'training'}. "
+            f"Supported: {', '.join(valid)}."
+        )
     return model_name
 
 

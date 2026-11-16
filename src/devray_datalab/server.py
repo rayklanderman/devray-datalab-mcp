@@ -17,7 +17,17 @@ from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
 from devray_datalab.config import DevRayConfig
-from devray_datalab.tools import analysis, datasets, models, system, training
+from devray_datalab.tools import (
+    analysis,
+    automl,
+    datasets,
+    experiments,
+    jobs,
+    models,
+    splits,
+    system,
+    training,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -265,6 +275,373 @@ def build_server(config: DevRayConfig | None = None) -> Server:
                 "additionalProperties": False,
             },
         ),
+        Tool(
+            name="list_experiments",
+            description="List recorded training experiments, newest first.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max experiments to return (default 50).",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="get_experiment",
+            description="Get a single recorded experiment by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "experiment_id": {
+                        "type": "string",
+                        "description": "Experiment ID.",
+                    },
+                },
+                "required": ["experiment_id"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="compare_experiments",
+            description="Compare multiple recorded experiments by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "experiment_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of experiment IDs.",
+                    },
+                },
+                "required": ["experiment_ids"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="list_models",
+            description="List experiments that produced a model artifact.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="load_model_handle",
+            description="Load a previously exported model artifact by experiment ID or name.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "experiment_id": {
+                        "type": "string",
+                        "description": "Experiment ID.",
+                    },
+                    "artifact_name": {
+                        "type": "string",
+                        "description": "Model artifact name.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="start_training_job",
+            description="Submit a training job and return its id immediately (non-blocking).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Dataset filename."},
+                    "target_column": {
+                        "type": "string",
+                        "description": "Target variable column.",
+                    },
+                    "task_type": {
+                        "type": "string",
+                        "description": "'classification' or 'regression'.",
+                    },
+                    "model_name": {"type": "string", "description": "Model to train."},
+                    "test_size": {"type": "number", "description": "Test fraction (default 0.2)."},
+                    "random_state": {
+                        "type": "integer",
+                        "description": "Random seed (default 42).",
+                    },
+                    "stratify": {
+                        "type": "boolean",
+                        "description": "Stratify split (classification only, default true).",
+                    },
+                },
+                "required": ["name", "target_column", "task_type", "model_name"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="get_training_status",
+            description="Return the status and result of a training job.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Training job id."},
+                },
+                "required": ["job_id"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="cancel_training_job",
+            description="Request cancellation of a queued or running training job.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "Training job id."},
+                },
+                "required": ["job_id"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="list_training_jobs",
+            description="List training jobs, newest first.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max jobs to return (default 50).",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="automl_run",
+            description="Run automated ML: train candidate models with CV, rank by objective.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Dataset filename."},
+                    "target_column": {
+                        "type": "string",
+                        "description": "Target variable column.",
+                    },
+                    "task_type": {
+                        "type": "string",
+                        "description": "'classification' or 'regression'.",
+                    },
+                    "metric": {"type": "string", "description": "Selection metric (default auto)."},
+                    "max_trials": {
+                        "type": "integer",
+                        "description": "Max models to evaluate (default 10, max 50).",
+                    },
+                    "max_time_seconds": {
+                        "type": "integer",
+                        "description": "Max wall-clock seconds (default 600).",
+                    },
+                    "random_state": {
+                        "type": "integer",
+                        "description": "Random seed (default 42).",
+                    },
+                    "cv": {
+                        "type": "integer",
+                        "description": "Cross-validation folds (default 3).",
+                    },
+                    "models": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Subset of models to evaluate.",
+                    },
+                },
+                "required": ["name", "target_column", "task_type"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="tune_model",
+            description="Tune hyperparameters of a single model with cross-validation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Dataset filename."},
+                    "target_column": {
+                        "type": "string",
+                        "description": "Target variable column.",
+                    },
+                    "task_type": {
+                        "type": "string",
+                        "description": "'classification' or 'regression'.",
+                    },
+                    "model_name": {"type": "string", "description": "Model to tune."},
+                    "metric": {"type": "string", "description": "Selection metric (default auto)."},
+                    "max_trials": {
+                        "type": "integer",
+                        "description": "Max tuning trials (default 20).",
+                    },
+                    "max_time_seconds": {
+                        "type": "integer",
+                        "description": "Max wall-clock seconds (default 600).",
+                    },
+                    "random_state": {
+                        "type": "integer",
+                        "description": "Random seed (default 42).",
+                    },
+                    "cv": {
+                        "type": "integer",
+                        "description": "Cross-validation folds (default 3).",
+                    },
+                },
+                "required": ["name", "target_column", "task_type", "model_name"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="get_model_leaderboard",
+            description="Return the ranked leaderboard of an AutoML run.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Dataset filename."},
+                    "target_column": {
+                        "type": "string",
+                        "description": "Target variable column.",
+                    },
+                    "task_type": {
+                        "type": "string",
+                        "description": "'classification' or 'regression'.",
+                    },
+                    "metric": {"type": "string", "description": "Selection metric (default auto)."},
+                    "max_trials": {
+                        "type": "integer",
+                        "description": "Max models to evaluate (default 10).",
+                    },
+                    "max_time_seconds": {
+                        "type": "integer",
+                        "description": "Max wall-clock seconds (default 600).",
+                    },
+                    "random_state": {
+                        "type": "integer",
+                        "description": "Random seed (default 42).",
+                    },
+                    "cv": {
+                        "type": "integer",
+                        "description": "Cross-validation folds (default 3).",
+                    },
+                },
+                "required": ["name", "target_column", "task_type"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="create_split_manifest",
+            description="Create a reproducible train/validation/test split manifest.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Dataset filename."},
+                    "split_type": {
+                        "type": "string",
+                        "description": "'random', 'stratified', 'group', or 'time'.",
+                    },
+                    "test_size": {"type": "number", "description": "Test fraction (default 0.2)."},
+                    "val_size": {
+                        "type": "number",
+                        "description": "Validation fraction (default 0.0).",
+                    },
+                    "random_state": {
+                        "type": "integer",
+                        "description": "Random seed (default 42).",
+                    },
+                    "stratify_column": {
+                        "type": "string",
+                        "description": "Column to stratify by (stratified split).",
+                    },
+                    "group_column": {
+                        "type": "string",
+                        "description": "Column to split by groups (group split).",
+                    },
+                    "time_column": {
+                        "type": "string",
+                        "description": "Column to order by (time split).",
+                    },
+                    "protected_holdout": {
+                        "type": "boolean",
+                        "description": "Treat test set as protected holdout (default true).",
+                    },
+                },
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="validate_split_manifest",
+            description="Validate a stored split manifest against a dataset.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "manifest_id": {
+                        "type": "string",
+                        "description": "Split manifest id.",
+                    },
+                    "name": {"type": "string", "description": "Dataset filename."},
+                },
+                "required": ["manifest_id", "name"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="list_split_manifests",
+            description="List all stored split manifests, newest first.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="detect_potential_leakage",
+            description="Detect potential data-leakage issues in a dataset.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Dataset filename."},
+                    "target_column": {
+                        "type": "string",
+                        "description": "Target variable column (optional).",
+                    },
+                },
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="analyze_feature_drift",
+            description="Detect feature drift between a reference and current dataset.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "reference_name": {
+                        "type": "string",
+                        "description": "Reference dataset filename.",
+                    },
+                    "current_name": {
+                        "type": "string",
+                        "description": "Current dataset filename.",
+                    },
+                    "alpha": {
+                        "type": "number",
+                        "description": "Significance level (default 0.05).",
+                    },
+                    "columns": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Columns to check (default all common).",
+                    },
+                },
+                "required": ["reference_name", "current_name"],
+                "additionalProperties": False,
+            },
+        ),
     ]
 
     tool_handlers = {
@@ -278,6 +655,23 @@ def build_server(config: DevRayConfig | None = None) -> Server:
         "export_model": models.export_model_tool,
         "predict": models.predict_tool,
         "system_info": system.system_info_tool,
+        "list_experiments": experiments.list_experiments_tool,
+        "get_experiment": experiments.get_experiment_tool,
+        "compare_experiments": experiments.compare_experiments_tool,
+        "list_models": experiments.list_models_tool,
+        "load_model_handle": experiments.load_model_handle_tool,
+        "start_training_job": jobs.start_training_job_tool,
+        "get_training_status": jobs.get_training_status_tool,
+        "cancel_training_job": jobs.cancel_training_job_tool,
+        "list_training_jobs": jobs.list_training_jobs_tool,
+        "automl_run": automl.automl_run_tool,
+        "tune_model": automl.tune_model_tool,
+        "get_model_leaderboard": automl.get_model_leaderboard_tool,
+        "create_split_manifest": splits.create_split_manifest_tool,
+        "validate_split_manifest": splits.validate_split_manifest_tool,
+        "list_split_manifests": splits.list_split_manifests_tool,
+        "detect_potential_leakage": analysis.detect_potential_leakage_tool,
+        "analyze_feature_drift": analysis.analyze_feature_drift_tool,
     }
 
     async def on_list_tools(context, params) -> ListToolsResult:  # noqa: ARG001
@@ -311,7 +705,7 @@ def build_server(config: DevRayConfig | None = None) -> Server:
 
     server = Server(
         name="devray-datalab-mcp",
-        version="0.1.0",
+        version="0.3.0",
         title="DevRay DataLab MCP",
         instructions=(
             "DevRay DataLab MCP is a local-first data science and machine "

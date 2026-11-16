@@ -8,6 +8,7 @@ import pandas as pd
 from mcp.types import TextContent
 
 from devray_datalab.config import DevRayConfig
+from devray_datalab.core.diagnostics import analyze_feature_drift, detect_potential_leakage
 from devray_datalab.core.loader import load_dataset
 from devray_datalab.utils.errors import DevRayError
 
@@ -210,3 +211,89 @@ async def analyze_data_quality_tool(config: DevRayConfig, arguments: dict) -> li
             "recommendations": recommendations,
         }
     )
+
+
+async def detect_potential_leakage_tool(
+    config: DevRayConfig,
+    arguments: dict,
+) -> list[TextContent]:
+    """Detect potential data-leakage issues in a dataset.
+
+    Flags identifiers, constant/high-cardinality columns, target-correlated
+    columns, duplicated columns, and target-derived column names. Flagged
+    columns require investigation; flagging does not confirm leakage.
+    """
+    name = arguments.get("name")
+    if not name:
+        return _err("Required argument: 'name' (dataset filename).", "validation_error")
+
+    target_column = arguments.get("target_column")
+
+    try:
+        from devray_datalab.core.loader import load_dataset
+
+        try:
+            df = load_dataset(config, str(name))
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+        except Exception as exc:  # noqa: BLE001
+            return _err(f"Failed to load dataset: {exc}", "dataset_error")
+    except DevRayError as exc:
+        return _err(exc.message, exc.code)
+
+    try:
+        result = detect_potential_leakage(df, target_column=target_column)
+    except (DevRayError, ValueError) as exc:
+        return _err(str(exc), exc.code if isinstance(exc, DevRayError) else "validation_error")
+    except Exception as exc:  # noqa: BLE001
+        return _err(f"Leakage detection failed: {exc}", "analysis_error")
+
+    return _ok(result)
+
+
+async def analyze_feature_drift_tool(
+    config: DevRayConfig,
+    arguments: dict,
+) -> list[TextContent]:
+    """Detect feature drift between a reference and current dataset.
+
+    Uses KS test (numeric) and chi-square test (categorical) to compare
+    distributions. Returns per-column drift flags and an overall summary.
+    """
+    reference_name = arguments.get("reference_name")
+    current_name = arguments.get("current_name")
+    if not reference_name or not current_name:
+        return _err(
+            "Required arguments: 'reference_name' and 'current_name'.",
+            "validation_error",
+        )
+
+    alpha = float(arguments.get("alpha", 0.05))
+    columns = arguments.get("columns")
+
+    try:
+        from devray_datalab.core.loader import load_dataset
+
+        try:
+            reference = load_dataset(config, str(reference_name))
+            current = load_dataset(config, str(current_name))
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+        except Exception as exc:  # noqa: BLE001
+            return _err(f"Failed to load dataset: {exc}", "dataset_error")
+    except DevRayError as exc:
+        return _err(exc.message, exc.code)
+
+    try:
+        result = analyze_feature_drift(
+            reference=reference,
+            current=current,
+            columns=columns,
+            alpha=alpha,
+        )
+    except (DevRayError, ValueError) as exc:
+        return _err(str(exc), exc.code if isinstance(exc, DevRayError) else "validation_error")
+    except Exception as exc:  # noqa: BLE001
+        return _err(f"Drift analysis failed: {exc}", "analysis_error")
+
+    return _ok(result)

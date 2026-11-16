@@ -11,14 +11,23 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    ExtraTreesRegressor,
+    HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor,
+    RandomForestClassifier,
+    RandomForestRegressor,
+)
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
 from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from devray_datalab.config import DevRayConfig
@@ -70,12 +79,20 @@ CLASSIFICATION_MODELS: dict[str, type[BaseEstimator]] = {
     "logistic_regression": LogisticRegression,
     "decision_tree": DecisionTreeClassifier,
     "random_forest": RandomForestClassifier,
+    "extra_trees": ExtraTreesClassifier,
+    "hist_gradient_boosting": HistGradientBoostingClassifier,
+    "svm": SVC,
+    "knn": KNeighborsClassifier,
 }
 REGRESSION_MODELS: dict[str, type[BaseEstimator]] = {
     "linear_regression": LinearRegression,
     "ridge_regression": Ridge,
     "decision_tree": DecisionTreeRegressor,
     "random_forest": RandomForestRegressor,
+    "extra_trees": ExtraTreesRegressor,
+    "hist_gradient_boosting": HistGradientBoostingRegressor,
+    "svm": SVR,
+    "knn": KNeighborsRegressor,
 }
 
 
@@ -139,6 +156,7 @@ class Trainer:
         random_state: int = 42,
         stratify: bool = True,
         job_id: str | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         """Train a single baseline model and return structured results."""
 
@@ -163,6 +181,7 @@ class Trainer:
                 test_size,
                 random_state,
                 stratify,
+                cancel_check=cancel_check,
             )
             job.status = JobStatus.COMPLETED
             job.progress = 1.0
@@ -185,6 +204,7 @@ class Trainer:
         test_size: float,
         random_state: int,
         stratify: bool,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         from devray_datalab.utils.validation import validate_model_name, validate_task_type
 
@@ -195,7 +215,7 @@ class Trainer:
         else:
             models = REGRESSION_MODELS
 
-        validate_model_name(model_name)
+        validate_model_name(model_name, task_type=task_type)
         model_cls = models[model_name]
 
         if target_column not in df.columns:
@@ -239,7 +259,7 @@ class Trainer:
             raise TrainingError("Test set is empty; dataset too small to split.")
 
         job.progress = 0.3
-        if job.is_cancel_requested():
+        if job.is_cancel_requested() or (cancel_check and cancel_check()):
             raise TrainingError("Training cancelled.")
 
         # Fit preprocessing on training data only.
@@ -252,7 +272,7 @@ class Trainer:
         X_test_t = transform_features(artifact, X_test)
 
         job.progress = 0.5
-        if job.is_cancel_requested():
+        if job.is_cancel_requested() or (cancel_check and cancel_check()):
             raise TrainingError("Training cancelled.")
 
         # Train model.
@@ -263,7 +283,7 @@ class Trainer:
             raise TrainingError(f"Model training failed: {exc}") from exc
 
         job.progress = 0.8
-        if job.is_cancel_requested():
+        if job.is_cancel_requested() or (cancel_check and cancel_check()):
             raise TrainingError("Training cancelled.")
 
         # Evaluate.
@@ -316,8 +336,8 @@ class Trainer:
 
         from devray_datalab.utils.validation import validate_model_name, validate_task_type
 
-        validate_task_type(task_type)
-        validate_model_name(model_name)
+        task_type = validate_task_type(task_type)
+        validate_model_name(model_name, task_type=task_type)
         models = CLASSIFICATION_MODELS if task_type == "classification" else REGRESSION_MODELS
         model_cls = models[model_name]
 
