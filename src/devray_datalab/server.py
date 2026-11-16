@@ -59,6 +59,89 @@ _tool_specs: list[Tool] = [
         },
     ),
     Tool(
+        name="list_split_manifests",
+        description="List all stored split manifests, newest first.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    ),
+    Tool(
+        name="create_split_manifest",
+        description="Create a reproducible train/validation/test split manifest.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Dataset filename.",
+                },
+                "task_type": {
+                    "type": "string",
+                    "description": "'classification' or 'regression' (default classification).",
+                },
+                "split_type": {
+                    "type": "string",
+                    "description": "Split strategy: random, stratified, grouped, time_series.",
+                },
+                "test_size": {
+                    "type": "number",
+                    "description": "Fraction of data for test holdout (default 0.2).",
+                },
+                "val_size": {
+                    "type": "number",
+                    "description": "Fraction of data for validation (default 0.0).",
+                },
+                "random_state": {
+                    "type": "integer",
+                    "description": "Random seed for reproducibility (default 42).",
+                },
+                "stratify_column": {
+                    "type": "string",
+                    "description": "Column to stratify splits by.",
+                },
+                "group_column": {
+                    "type": "string",
+                    "description": "Column to group splits by (groups stay together).",
+                },
+                "time_column": {
+                    "type": "string",
+                    "description": "Column for time-based splitting.",
+                },
+                "protected_holdout": {
+                    "type": "boolean",
+                    "description": "Keep test set as protected holdout (default true).",
+                },
+                "delimiter": {
+                    "type": "string",
+                    "description": "CSV delimiter (comma, semi, tab, pipe). Auto.",
+                },
+            },
+            "required": ["name"],
+            "additionalProperties": False,
+        },
+    ),
+    Tool(
+        name="validate_split_manifest",
+        description="Validate a stored split manifest against a dataset.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "manifest_id": {
+                    "type": "string",
+                    "description": "ID of the split manifest to validate.",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Dataset filename.",
+                },
+            },
+            "required": ["manifest_id", "name"],
+            "additionalProperties": False,
+        },
+    ),
+    Tool(
         name="inspect_dataset",
         description="Inspect a CSV dataset (types, missing values, stats, preview).",
         inputSchema={
@@ -338,9 +421,7 @@ _tool_specs: list[Tool] = [
                     "type": "string",
                     "description": "Name of the exported model artifact.",
                 },
-                "features": {
-                    "description": "Feature record(s) to predict on."
-                },
+                "features": {"description": "Feature record(s) to predict on."},
             },
             "required": ["artifact_name", "features"],
             "additionalProperties": False,
@@ -636,73 +717,79 @@ def build_server(config: DevRayConfig | None = None) -> Server:
     if config is None:
         config = DevRayConfig()
 
-    async def list_tools(
-        context: Any, params: Any | None
-    ) -> ListToolsResult:
+    async def list_tools(context: Any, params: Any | None) -> ListToolsResult:
         return ListToolsResult(tools=_tool_specs)
 
-    async def call_tool_handler(
-        context: Any, params: Any | None
-    ) -> CallToolResult:
+    async def call_tool_handler(context: Any, params: Any | None) -> CallToolResult:
         """Handle a tool call with lazy module loading.
 
         Tool modules are imported only when first called, avoiding heavy
-        imports (pandas, scikit-learn, etc.) at server startup.
+        imports (pandas, scikit-learn, etc.) at server startup. Each tool
+        imports only its own module, so calling system_info does not load
+        training/automl/etc. modules.
         """
         arguments = params.arguments if params and params.arguments else {}
         name = params.name if params else None
         logger.info("MCP tool called: %s", name)
 
-        # Import tool modules lazily
-        from devray_datalab.tools import (
-            analysis,
-            automl,
-            datasets,
-            experiments,
-            jobs,
-            models,
-            splits,
-            system,
-            training,
-        )
+        # Import tool module lazily - only the module for this specific tool
+        import importlib
 
-        tool_handlers = {
-            "list_datasets": datasets.list_datasets_tool,
-            "inspect_dataset": datasets.inspect_dataset_tool,
-            "analyze_correlations": analysis.analyze_correlations_tool,
-            "analyze_data_quality": analysis.analyze_data_quality_tool,
-            "detect_potential_leakage": analysis.detect_potential_leakage_tool,
-            "analyze_feature_drift": analysis.analyze_feature_drift_tool,
-            "prepare_dataset": training.prepare_dataset_tool,
-            "train_baseline": training.train_baseline_tool,
-            "compare_models": training.compare_models_tool,
-            "export_model": models.export_model_tool,
-            "predict": models.predict_tool,
-            "system_info": system.system_info_tool,
-            "list_experiments": experiments.list_experiments_tool,
-            "get_experiment": experiments.get_experiment_tool,
-            "compare_experiments": experiments.compare_experiments_tool,
-            "list_models": experiments.list_models_tool,
-            "load_model_handle": experiments.load_model_handle_tool,
-            "start_training_job": jobs.start_training_job_tool,
-            "get_training_status": jobs.get_training_status_tool,
-            "cancel_training_job": jobs.cancel_training_job_tool,
-            "list_training_jobs": jobs.list_training_jobs_tool,
-            "automl_run": automl.automl_run_tool,
-            "tune_model": automl.tune_model_tool,
-            "get_model_leaderboard": automl.get_model_leaderboard_tool,
-            "create_split_manifest": splits.create_split_manifest_tool,
-            "validate_split_manifest": splits.validate_split_manifest_tool,
-            "list_split_manifests": splits.list_split_manifests_tool,
+        _tool_module_map: dict[str, str] = {
+            "list_datasets": "devray_datalab.tools.datasets",
+            "inspect_dataset": "devray_datalab.tools.datasets",
+            "analyze_correlations": "devray_datalab.tools.analysis",
+            "analyze_data_quality": "devray_datalab.tools.analysis",
+            "detect_potential_leakage": "devray_datalab.tools.analysis",
+            "analyze_feature_drift": "devray_datalab.tools.analysis",
+            "prepare_dataset": "devray_datalab.tools.training",
+            "train_baseline": "devray_datalab.tools.training",
+            "compare_models": "devray_datalab.tools.training",
+            "export_model": "devray_datalab.tools.models",
+            "predict": "devray_datalab.tools.models",
+            "system_info": "devray_datalab.tools.system",
+            "list_experiments": "devray_datalab.tools.experiments",
+            "get_experiment": "devray_datalab.tools.experiments",
+            "compare_experiments": "devray_datalab.tools.experiments",
+            "list_models": "devray_datalab.tools.experiments",
+            "load_model_handle": "devray_datalab.tools.experiments",
+            "start_training_job": "devray_datalab.tools.jobs",
+            "get_training_status": "devray_datalab.tools.jobs",
+            "cancel_training_job": "devray_datalab.tools.jobs",
+            "list_training_jobs": "devray_datalab.tools.jobs",
+            "automl_run": "devray_datalab.tools.automl",
+            "tune_model": "devray_datalab.tools.automl",
+            "get_model_leaderboard": "devray_datalab.tools.automl",
+            "create_split_manifest": "devray_datalab.tools.splits",
+            "validate_split_manifest": "devray_datalab.tools.splits",
+            "list_split_manifests": "devray_datalab.tools.splits",
         }
 
-        handler = tool_handlers.get(name)
-        if handler is None:
+        module_name = _tool_module_map.get(name)
+        if module_name is None:
             return CallToolResult(
                 content=[
                     TextContent(
                         type="text",
                         text=_err(f"Unknown tool: {name}", "unknown_tool"),
+                    )
+                ],
+                isError=True,
+            )
+
+        module = importlib.import_module(module_name)
+
+        handler_attr_name = f"{name}_tool"
+        handler = getattr(module, handler_attr_name, None)
+        if handler is None:
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text=_err(
+                            f"Handler {handler_attr_name} not found in {module_name}",
+                            "internal_error",
+                        ),
                     )
                 ],
                 isError=True,
