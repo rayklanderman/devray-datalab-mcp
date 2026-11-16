@@ -274,7 +274,7 @@ A full step-by-step tutorial with copy-ready prompts is available in [`docs/quic
 - [Glama listing](https://glama.ai/mcp/servers/rayklanderman/devray-datalab-mcp)
 - [Source code](https://github.com/rayklanderman/devray-datalab-mcp)
 - [Issues](https://github.com/rayklanderman/devray-datalab-mcp/issues)
-- [Release notes](https://github.com/rayklanderman/devray-datalab-mcp/releases/tag/v0.1.0)
+- [Release notes](https://github.com/rayklanderman/devray-datalab-mcp/releases/tag/v0.3.0)
 
 ## Security and privacy
 

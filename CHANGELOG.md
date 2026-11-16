@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.0] - Unreleased
+## [0.3.0] - Released
 
 ### Added
 - Non-blocking training jobs: `start_training_job`, `get_training_status`, `cancel_training_job`, `list_training_jobs` (training runs off the MCP request loop with cooperative cancellation).
