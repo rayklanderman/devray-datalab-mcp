@@ -52,7 +52,6 @@ def test_preview_dataframe(config, classification_csv):
 
 
 def test_load_csv_comma_delimiter(config, comma_csv):
-    import pandas as pd
 
     df = load_dataset(config, "sample_comma.csv")
     assert not df.empty
@@ -61,7 +60,6 @@ def test_load_csv_comma_delimiter(config, comma_csv):
 
 
 def test_load_csv_semicolon_delimiter(config, semicolon_csv):
-    import pandas as pd
 
     df = load_dataset(config, "sample_semicolon.csv")
     assert not df.empty
@@ -72,7 +70,6 @@ def test_load_csv_semicolon_delimiter(config, semicolon_csv):
 
 
 def test_load_csv_tab_delimiter(config, tab_csv):
-    import pandas as pd
 
     df = load_dataset(config, "sample_tab.csv")
     assert not df.empty
@@ -81,7 +78,6 @@ def test_load_csv_tab_delimiter(config, tab_csv):
 
 
 def test_load_csv_pipe_delimiter(config, pipe_csv):
-    import pandas as pd
 
     df = load_dataset(config, "sample_pipe.csv")
     assert not df.empty
@@ -90,7 +86,6 @@ def test_load_csv_pipe_delimiter(config, pipe_csv):
 
 
 def test_load_csv_quoted_fields(config, quoted_csv):
-    import pandas as pd
 
     df = load_dataset(config, "sample_quoted.csv")
     assert not df.empty
@@ -104,7 +99,6 @@ def test_load_csv_quoted_fields(config, quoted_csv):
 
 def test_load_csv_auto_detect_semicolon(config, semicolon_csv):
     """Test that semicolon-delimited files are auto-detected without explicit delimiter."""
-    import pandas as pd
 
     df = load_dataset(config, "sample_semicolon.csv")
     assert not df.empty
