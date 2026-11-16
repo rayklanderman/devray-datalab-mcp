@@ -3,7 +3,7 @@
   "name": "io.github.rayklanderman/devray-datalab-mcp",
   "title": "DevRay DataLab MCP",
   "description": "Local-first data science and machine learning MCP server",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "repository": {
     "url": "https://github.com/rayklanderman/devray-datalab-mcp",
     "source": "github"
@@ -13,7 +13,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "devray-datalab-mcp",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       }
