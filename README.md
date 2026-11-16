@@ -199,35 +199,35 @@ A dedicated guide is available in [`docs/codex-integration.md`](docs/codex-integ
 
 ## Available tools
 
-| Tool | What it does |
-|---|---|
-| `list_datasets` | List CSV datasets in the workspace |
-| `inspect_dataset` | Load a CSV; report types, missing values, stats, preview |
-| `analyze_correlations` | Pearson/Spearman correlations, strongest pairs |
-| `analyze_data_quality` | Missing values, duplicates, constants, outliers, recommendations |
-| `prepare_dataset` | Define target + task type; fit preprocessing on train data only |
-| `train_baseline` | Train a classification or regression model |
-| `compare_models` | Compare multiple algorithms; select best by metric (with cross-validation) |
-| `export_model` | Save model with pipeline, metadata, and schema |
-| `predict` | Generate predictions from a saved local model |
-| `system_info` | CPU, RAM, storage, GPU detection |
-| `list_experiments` | List recorded training experiments, newest first |
-| `get_experiment` | Get a single recorded experiment by ID |
-| `compare_experiments` | Compare multiple recorded experiments by ID |
-| `list_models` | List experiments that produced a model artifact |
-| `load_model_handle` | Load a previously exported model artifact by experiment ID or name |
-| `start_training_job` | Submit a training job (non-blocking); returns a job id |
-| `get_training_status` | Return the status and result of a training job |
-| `cancel_training_job` | Request cancellation of a queued or running training job |
-| `list_training_jobs` | List training jobs, newest first |
-| `automl_run` | Run automated ML: train candidates with CV, rank by objective |
-| `tune_model` | Tune hyperparameters of a single model with cross-validation |
-| `get_model_leaderboard` | Return the ranked leaderboard of an AutoML run |
-| `create_split_manifest` | Create a reproducible train/validation/test split manifest |
-| `validate_split_manifest` | Validate a stored split manifest against a dataset |
-| `list_split_manifests` | List all stored split manifests, newest first |
-| `detect_potential_leakage` | Flag potential data-leakage issues in a dataset |
-| `analyze_feature_drift` | Detect feature drift between reference and current datasets |
+| Tool | What it does | Category |
+|---|---|---|
+| `list_datasets` | List CSV datasets in the workspace | Dataset |
+| `inspect_dataset` | Load a CSV; report types, missing values, stats, preview | Dataset |
+| `analyze_correlations` | Pearson/Spearman correlations, strongest pairs | Analysis |
+| `analyze_data_quality` | Missing values, duplicates, constants, outliers, recommendations | Analysis |
+| `detect_potential_leakage` | Flag potential data-leakage issues in a dataset | Analysis |
+| `analyze_feature_drift` | Detect feature drift between reference and current datasets | Analysis |
+| `prepare_dataset` | Define target + task type; fit preprocessing on train data only | Preprocessing |
+| `train_baseline` | Train a classification or regression model | Training |
+| `start_training_job` | Submit a training job (non-blocking); returns a job id | Training |
+| `get_training_status` | Return the status and result of a training job | Training |
+| `cancel_training_job` | Request cancellation of a queued or running training job | Training |
+| `list_training_jobs` | List training jobs, newest first | Training |
+| `compare_models` | Compare multiple algorithms; select best by metric (with cross-validation) | Training |
+| `automl_run` | Run automated ML: train candidates with CV, rank by objective | AutoML |
+| `tune_model` | Tune hyperparameters of a single model with cross-validation | AutoML |
+| `get_model_leaderboard` | Return the ranked leaderboard of an AutoML run | AutoML |
+| `export_model` | Save model with pipeline, metadata, and schema | Models |
+| `predict` | Generate predictions from a saved local model | Models |
+| `list_experiments` | List recorded training experiments, newest first | Experiments |
+| `get_experiment` | Get a single recorded experiment by ID | Experiments |
+| `compare_experiments` | Compare multiple recorded experiments by ID | Experiments |
+| `list_models` | List experiments that produced a model artifact | Experiments |
+| `load_model_handle` | Load a previously exported model artifact by experiment ID or name | Experiments |
+| `create_split_manifest` | Create a reproducible train/validation/test split manifest | Data Splits |
+| `validate_split_manifest` | Validate a stored split manifest against a dataset | Data Splits |
+| `list_split_manifests` | List all stored split manifests, newest first | Data Splits |
+| `system_info` | CPU, RAM, storage, GPU detection | System |
 
 ## Supported algorithms
 
