@@ -174,10 +174,12 @@ async def prepare_dataset_tool(config: DevRayConfig, arguments: dict) -> list[Te
     except DevRayError as exc:
         return _err(exc.message, exc.code)
 
+    delimiter = arguments.get("delimiter")
+
     try:
         from devray_datalab.core.loader import load_dataset
 
-        df = load_dataset(config, str(name))
+        df = load_dataset(config, str(name), delimiter=delimiter)
     except DevRayError as exc:
         return _err(exc.message, exc.code)
     except Exception as exc:  # noqa: BLE001
@@ -274,10 +276,12 @@ async def train_baseline_tool(config: DevRayConfig, arguments: dict) -> list[Tex
     random_state = int(arguments.get("random_state", 42))
     stratify = bool(arguments.get("stratify", True))
 
+    delimiter = arguments.get("delimiter")
+
     try:
         from devray_datalab.core.loader import load_dataset
 
-        df = load_dataset(config, str(name))
+        df = load_dataset(config, str(name), delimiter=delimiter)
     except DevRayError as exc:
         return _err(exc.message, exc.code)
     except Exception as exc:  # noqa: BLE001
@@ -343,10 +347,12 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
     cv = int(arguments.get("cv", 5))
     cv = max(2, min(cv, 10))
 
+    delimiter = arguments.get("delimiter")
+
     try:
         from devray_datalab.core.loader import load_dataset
 
-        df = load_dataset(config, str(name))
+        df = load_dataset(config, str(name), delimiter=delimiter)
     except DevRayError as exc:
         return _err(exc.message, exc.code)
     except Exception as exc:  # noqa: BLE001

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.1] - Released
+
+### Fixed
+- CSV delimiter handling: robust loader supporting comma, semicolon, tab, and pipe delimiters with auto-detection.
+- Package version consistency: `__version__` now correctly reports `0.3.1`.
+
+### Changed
+- Server version bumped to 0.3.1.
+
 ## [0.3.0] - Released
 
 ### Added

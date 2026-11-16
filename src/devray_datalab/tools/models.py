@@ -87,10 +87,11 @@ async def export_model_tool(config: DevRayConfig, arguments: dict) -> list[TextC
         metrics = bundle.get("metrics")
         train_info = bundle.get("train_info")
     elif dataset_name and target_column and task_type and model_name:
+        delimiter = arguments.get("delimiter")
         from devray_datalab.core.loader import load_dataset
 
         try:
-            df = load_dataset(config, str(dataset_name))
+            df = load_dataset(config, str(dataset_name), delimiter=delimiter)
         except DevRayError as exc:
             return _err(exc.message, exc.code)
         except Exception as exc:  # noqa: BLE001

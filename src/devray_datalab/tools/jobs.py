@@ -76,8 +76,10 @@ async def start_training_job_tool(
         random_state = int(arguments.get("random_state", 42))
         stratify = bool(arguments.get("stratify", True))
 
+        delimiter = arguments.get("delimiter")
+
         try:
-            df = load_dataset(config, str(name))
+            df = load_dataset(config, str(name), delimiter=delimiter)
         except DevRayError as exc:
             return _err(exc.message, exc.code)
         except Exception as exc:  # noqa: BLE001

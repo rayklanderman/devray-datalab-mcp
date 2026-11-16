@@ -61,9 +61,10 @@ async def create_split_manifest_tool(
         group_column = arguments.get("group_column")
         time_column = arguments.get("time_column")
         protected_holdout = bool(arguments.get("protected_holdout", True))
+        delimiter = arguments.get("delimiter")
 
         try:
-            df = load_dataset(config, str(name))
+            df = load_dataset(config, str(name), delimiter=delimiter)
         except DevRayError as exc:
             return _err(exc.message, exc.code)
         except Exception as exc:  # noqa: BLE001

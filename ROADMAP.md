@@ -2,6 +2,13 @@
 
 DevRay DataLab MCP follows [semantic versioning](https://semver.org/). Releases are published to PyPI as `devray-datalab-mcp` and registered in the official MCP Registry as `io.github.rayklanderman/devray-datalab-mcp`.
 
+## v0.3.1 — Released
+
+The following v0.3.1 items have been implemented and tested:
+
+- Robust CSV delimiter handling: comma, semicolon, tab, and pipe support with auto-detection.
+- Package version consistency fixes.
+
 ## v0.3.0 — Released
 
 The following v0.3.0 items have been implemented and tested:

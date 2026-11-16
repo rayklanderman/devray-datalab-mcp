@@ -70,8 +70,10 @@ async def inspect_dataset_tool(config: DevRayConfig, arguments: dict) -> list[Te
         max_rows = config.max_preview_rows
     max_rows = max(1, min(max_rows, 100))
 
+    delimiter = arguments.get("delimiter")
+
     try:
-        df = load_dataset(config, str(name))
+        df = load_dataset(config, str(name), delimiter=delimiter)
     except DevRayError as exc:
         return _err(exc.message, exc.code)
     except Exception as exc:  # noqa: BLE001

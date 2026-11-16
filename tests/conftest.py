@@ -61,3 +61,38 @@ def regression_csv(config: DevRayConfig, example_dir: Path) -> Path:
     dest = config.workspace_dir / "sample_regression.csv"
     shutil.copy(example_dir / "sample_regression.csv", dest)
     return dest
+
+
+@pytest.fixture
+def comma_csv(config: DevRayConfig, example_dir: Path) -> Path:
+    dest = config.workspace_dir / "sample_comma.csv"
+    shutil.copy(example_dir / "sample_comma.csv", dest)
+    return dest
+
+
+@pytest.fixture
+def semicolon_csv(config: DevRayConfig, example_dir: Path) -> Path:
+    dest = config.workspace_dir / "sample_semicolon.csv"
+    shutil.copy(example_dir / "sample_semicolon.csv", dest)
+    return dest
+
+
+@pytest.fixture
+def tab_csv(config: DevRayConfig, example_dir: Path) -> Path:
+    dest = config.workspace_dir / "sample_tab.csv"
+    shutil.copy(example_dir / "sample_tab.csv", dest)
+    return dest
+
+
+@pytest.fixture
+def pipe_csv(config: DevRayConfig, example_dir: Path) -> Path:
+    dest = config.workspace_dir / "sample_pipe.csv"
+    shutil.copy(example_dir / "sample_pipe.csv", dest)
+    return dest
+
+
+@pytest.fixture
+def quoted_csv(config: DevRayConfig, example_dir: Path) -> Path:
+    dest = config.workspace_dir / "sample_quoted.csv"
+    shutil.copy(example_dir / "sample_quoted.csv", dest)
+    return dest

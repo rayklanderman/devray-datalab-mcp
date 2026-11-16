@@ -48,8 +48,10 @@ async def analyze_correlations_tool(config: DevRayConfig, arguments: dict) -> li
     except (TypeError, ValueError):
         top_n = 10
 
+    delimiter = arguments.get("delimiter")
+
     try:
-        df = load_dataset(config, str(name))
+        df = load_dataset(config, str(name), delimiter=delimiter)
     except DevRayError as exc:
         return _err(exc.message, exc.code)
     except Exception as exc:  # noqa: BLE001
@@ -120,8 +122,10 @@ async def analyze_data_quality_tool(config: DevRayConfig, arguments: dict) -> li
     if not name:
         return _err("Missing required argument: 'name'.", "validation_error")
 
+    delimiter = arguments.get("delimiter")
+
     try:
-        df = load_dataset(config, str(name))
+        df = load_dataset(config, str(name), delimiter=delimiter)
     except DevRayError as exc:
         return _err(exc.message, exc.code)
     except Exception as exc:  # noqa: BLE001
@@ -228,12 +232,13 @@ async def detect_potential_leakage_tool(
         return _err("Required argument: 'name' (dataset filename).", "validation_error")
 
     target_column = arguments.get("target_column")
+    delimiter = arguments.get("delimiter")
 
     try:
         from devray_datalab.core.loader import load_dataset
 
         try:
-            df = load_dataset(config, str(name))
+            df = load_dataset(config, str(name), delimiter=delimiter)
         except DevRayError as exc:
             return _err(exc.message, exc.code)
         except Exception as exc:  # noqa: BLE001
@@ -270,13 +275,15 @@ async def analyze_feature_drift_tool(
 
     alpha = float(arguments.get("alpha", 0.05))
     columns = arguments.get("columns")
+    reference_delimiter = arguments.get("reference_delimiter")
+    current_delimiter = arguments.get("current_delimiter")
 
     try:
         from devray_datalab.core.loader import load_dataset
 
         try:
-            reference = load_dataset(config, str(reference_name))
-            current = load_dataset(config, str(current_name))
+            reference = load_dataset(config, str(reference_name), delimiter=reference_delimiter)
+            current = load_dataset(config, str(current_name), delimiter=current_delimiter)
         except DevRayError as exc:
             return _err(exc.message, exc.code)
         except Exception as exc:  # noqa: BLE001

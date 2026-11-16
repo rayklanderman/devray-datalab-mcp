@@ -1,0 +1,4 @@
+"id","name","description","value"
+"1","Item A","A description, with comma","100"
+"2","Item B","A description; with semicolon","200"
+"3","Item C","A description|with pipe","300"

@@ -705,7 +705,7 @@ def build_server(config: DevRayConfig | None = None) -> Server:
 
     server = Server(
         name="devray-datalab-mcp",
-        version="0.3.0",
+        version="0.3.1",
         title="DevRay DataLab MCP",
         instructions=(
             "DevRay DataLab MCP is a local-first data science and machine "
