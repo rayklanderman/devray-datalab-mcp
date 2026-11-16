@@ -122,6 +122,7 @@ def create_split_manifest(
     stratify_column: str | None = None,
     group_column: str | None = None,
     time_column: str | None = None,
+    row_order: bool = False,
     protected_holdout: bool = True,
 ) -> SplitManifest:
     """Create a reproducible train/validation/test split manifest.
@@ -164,6 +165,21 @@ def create_split_manifest(
         val_indices = indices[-n_test - n_val : -n_test] if n_val > 0 else []
         train_indices = indices[: -n_test - n_val] if n_val > 0 else indices[:-n_test]
         stratify_column = None  # stratification not applicable with time split
+    elif split_type == "time" and row_order:
+        # Chronological split by original row order (no date column required):
+        # earliest rows = train, latest rows = protected test holdout.
+        indices = list(range(n))
+        n_test = max(1, int(math.ceil(n * test_size)))
+        n_val = max(0, int(math.ceil(n * val_size)))
+        test_indices = indices[-n_test:]
+        val_indices = indices[-n_test - n_val : -n_test] if n_val > 0 else []
+        train_indices = indices[: -n_test - n_val] if n_val > 0 else indices[:-n_test]
+        stratify_column = None
+    elif split_type == "time":
+        raise ValidationError(
+            "split_type='time' requires a valid 'time_column' or 'row_order=True'. "
+            "A random split is never silently substituted."
+        )
     elif split_type == "group" and group_column is not None:
         # Group-aware: split by unique groups.
         groups = df[group_column]

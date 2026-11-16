@@ -109,6 +109,10 @@ _tool_specs: list[Tool] = [
                     "type": "string",
                     "description": "Column for time-based splitting.",
                 },
+                "row_order": {
+                    "type": "boolean",
+                    "description": "Split chronologically by original row order.",
+                },
                 "protected_holdout": {
                     "type": "boolean",
                     "description": "Keep test set as protected holdout (default true).",
@@ -284,6 +288,11 @@ _tool_specs: list[Tool] = [
                     "type": "boolean",
                     "description": "Stratify split (classification only, default true).",
                 },
+                "exclude_columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Feature columns to exclude before preprocessing/training.",
+                },
                 "delimiter": {
                     "type": "string",
                     "description": "CSV delimiter (comma, semicolon, tab, pipe). Auto.",
@@ -317,6 +326,15 @@ _tool_specs: list[Tool] = [
                 "stratify": {
                     "type": "boolean",
                     "description": "Stratify split (classification only, default true).",
+                },
+                "exclude_columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Feature columns to exclude before preprocessing/training.",
+                },
+                "split_manifest_id": {
+                    "type": "string",
+                    "description": "ID of a validated split manifest to enforce indices.",
                 },
                 "delimiter": {
                     "type": "string",
@@ -356,6 +374,15 @@ _tool_specs: list[Tool] = [
                 "cv": {
                     "type": "integer",
                     "description": "Cross-validation folds (default 5).",
+                },
+                "exclude_columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Feature columns to exclude before preprocessing/training.",
+                },
+                "split_manifest_id": {
+                    "type": "string",
+                    "description": "ID of a validated split manifest to enforce indices.",
                 },
                 "delimiter": {
                     "type": "string",
