@@ -5,12 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from mcp.types import TextContent
 from sklearn.base import BaseEstimator
 
 from devray_datalab.config import DevRayConfig
 from devray_datalab.core.preprocessing import (
     PreprocessingArtifact,
+    categorical_encoder,
+    learned_categories,
     transform_features,
 )
 from devray_datalab.core.splits import _dataset_fingerprint
@@ -52,6 +55,66 @@ def _package_metadata() -> dict[str, str]:
         except Exception:
             versions[pkg] = "unknown"
     return versions
+
+
+# Maximum number of distinct unseen-category warnings returned per prediction
+# call. Keeps responses small for large batches or high-cardinality features.
+_MAX_UNSEEN_WARNINGS = 25
+
+
+def _detect_unseen_categories(
+    artifact: PreprocessingArtifact, df_input: pd.DataFrame
+) -> tuple[list[dict[str, Any]], str]:
+    """Detect categorical values in ``df_input`` not seen at fit time.
+
+    Returns ``(warnings, handle_unknown)``. Each warning identifies the type,
+    affected feature, unseen value, affected record count, and a plain-language
+    message. Missing values and numeric features are skipped; they are handled
+    by the fitted imputer/transformer and are not "unseen".
+
+    The encoder's ``handle_unknown`` setting is returned so the caller can
+    decide whether prediction may continue ("ignore") or must fail ("error").
+    """
+    warnings: list[dict[str, Any]] = []
+    categorical_features = list(artifact.categorical_features or [])
+    if not categorical_features:
+        return warnings, "ignore"
+
+    categories = learned_categories(artifact)
+    encoder = categorical_encoder(artifact)
+    handle_unknown = (
+        getattr(encoder, "handle_unknown", "ignore") if encoder is not None else "ignore"
+    )
+
+    for col in categorical_features:
+        if col not in df_input.columns:
+            continue
+        learned = set(categories.get(col, []))
+        if not learned:
+            continue
+        value_counts: dict[str, int] = {}
+        for value in df_input[col]:
+            if pd.isna(value):
+                continue
+            key = str(value)
+            if key not in learned:
+                value_counts[key] = value_counts.get(key, 0) + 1
+        for value, count in value_counts.items():
+            if len(warnings) >= _MAX_UNSEEN_WARNINGS:
+                break
+            warnings.append(
+                {
+                    "type": "unseen_category",
+                    "column": col,
+                    "value": value,
+                    "affected_rows": int(count),
+                    "message": (
+                        f"This value was not observed during model training for feature '{col}'."
+                    ),
+                }
+            )
+
+    return warnings, handle_unknown
 
 
 async def export_model_tool(config: DevRayConfig, arguments: dict) -> list[TextContent]:
@@ -236,6 +299,20 @@ async def predict_tool(config: DevRayConfig, arguments: dict) -> list[TextConten
         # Warn but ignore extra columns rather than failing hard.
         pass
 
+    # Detect previously unseen categorical values before transforming. This
+    # does not alter predictions, probabilities, or fitted preprocessing.
+    warnings, handle_unknown = _detect_unseen_categories(artifact, df_input)
+    if handle_unknown != "ignore" and warnings:
+        summary = "; ".join(
+            f"{w['column']}={w['value']} ({w['affected_rows']} row(s))"
+            for w in warnings[:_MAX_UNSEEN_WARNINGS]
+        )
+        return _err(
+            "Prediction contains unseen categorical values the fitted encoder "
+            f"cannot handle: {summary}",
+            "unseen_category",
+        )
+
     try:
         X = transform_features(artifact, df_input)
     except DevRayError as exc:
@@ -267,5 +344,6 @@ async def predict_tool(config: DevRayConfig, arguments: dict) -> list[TextConten
             "probabilities": probabilities,
             "schema_valid": True,
             "ignored_extra_columns": extra,
+            "warnings": warnings,
         }
     )
