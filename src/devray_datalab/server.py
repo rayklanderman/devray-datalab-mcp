@@ -429,6 +429,15 @@ _tool_specs: list[Tool] = [
                     "type": "boolean",
                     "description": "Stratify split (classification only).",
                 },
+                "exclude_columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Feature columns to exclude before preprocessing/training.",
+                },
+                "split_manifest_id": {
+                    "type": "string",
+                    "description": "ID of a validated split manifest to enforce indices.",
+                },
                 "delimiter": {
                     "type": "string",
                     "description": "CSV delimiter (comma, semicolon, tab, pipe). Auto.",
@@ -560,6 +569,15 @@ _tool_specs: list[Tool] = [
                     "type": "boolean",
                     "description": "Stratify split (classification only, default true).",
                 },
+                "exclude_columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Feature columns to exclude before preprocessing/training.",
+                },
+                "split_manifest_id": {
+                    "type": "string",
+                    "description": "ID of a validated split manifest to enforce indices.",
+                },
                 "delimiter": {
                     "type": "string",
                     "description": "CSV delimiter (comma, semicolon, tab, pipe). Auto.",
@@ -644,6 +662,15 @@ _tool_specs: list[Tool] = [
                     "items": {"type": "string"},
                     "description": "Subset of models to evaluate.",
                 },
+                "exclude_columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Feature columns to exclude before preprocessing/training.",
+                },
+                "split_manifest_id": {
+                    "type": "string",
+                    "description": "ID of a validated split manifest to enforce indices.",
+                },
                 "delimiter": {
                     "type": "string",
                     "description": "CSV delimiter (comma, semicolon, tab, pipe). Auto.",
@@ -686,6 +713,15 @@ _tool_specs: list[Tool] = [
                     "type": "integer",
                     "description": "Cross-validation folds (default 3).",
                 },
+                "exclude_columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Feature columns to exclude before preprocessing/training.",
+                },
+                "split_manifest_id": {
+                    "type": "string",
+                    "description": "ID of a validated split manifest to enforce indices.",
+                },
                 "delimiter": {
                     "type": "string",
                     "description": "CSV delimiter (comma, semicolon, tab, pipe). Auto.",
@@ -726,6 +762,15 @@ _tool_specs: list[Tool] = [
                 "cv": {
                     "type": "integer",
                     "description": "Cross-validation folds (default 3).",
+                },
+                "exclude_columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Feature columns to exclude before preprocessing/training.",
+                },
+                "split_manifest_id": {
+                    "type": "string",
+                    "description": "ID of a validated split manifest to enforce indices.",
                 },
                 "delimiter": {
                     "type": "string",

@@ -8,6 +8,7 @@ from mcp.types import TextContent
 
 from devray_datalab.config import DevRayConfig
 from devray_datalab.core.automl import run_automl
+from devray_datalab.core.splits import development_rows_from_manifest
 from devray_datalab.utils.errors import DevRayError
 
 
@@ -65,6 +66,21 @@ async def automl_run_tool(
     except DevRayError as exc:
         return _err(exc.message, exc.code)
 
+    exclude_columns = arguments.get("exclude_columns") or []
+    split_manifest_id = arguments.get("split_manifest_id")
+
+    manifest = None
+    if split_manifest_id:
+        try:
+            df, manifest = development_rows_from_manifest(config, df, split_manifest_id)
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+    cv_strategy = (
+        "timeseries"
+        if manifest is not None and manifest.split_type == "time"
+        else ("stratified" if task_type == "classification" else "kfold")
+    )
+
     try:
         result = run_automl(
             df=df,
@@ -76,6 +92,8 @@ async def automl_run_tool(
             random_state=random_state,
             model_subset=model_subset,
             n_splits=n_splits,
+            exclude_columns=exclude_columns,
+            cv_strategy=cv_strategy,
         )
     except (DevRayError, ValueError) as exc:
         return _err(str(exc), exc.code if isinstance(exc, DevRayError) else "validation_error")
@@ -124,6 +142,21 @@ async def tune_model_tool(
     except DevRayError as exc:
         return _err(exc.message, exc.code)
 
+    exclude_columns = arguments.get("exclude_columns") or []
+    split_manifest_id = arguments.get("split_manifest_id")
+
+    manifest = None
+    if split_manifest_id:
+        try:
+            df, manifest = development_rows_from_manifest(config, df, split_manifest_id)
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+    cv_strategy = (
+        "timeseries"
+        if manifest is not None and manifest.split_type == "time"
+        else ("stratified" if task_type == "classification" else "kfold")
+    )
+
     try:
         result = run_automl(
             df=df,
@@ -135,6 +168,8 @@ async def tune_model_tool(
             random_state=random_state,
             model_subset=[model_name],
             n_splits=n_splits,
+            exclude_columns=exclude_columns,
+            cv_strategy=cv_strategy,
         )
     except (DevRayError, ValueError) as exc:
         return _err(str(exc), exc.code if isinstance(exc, DevRayError) else "validation_error")
@@ -193,6 +228,21 @@ async def get_model_leaderboard_tool(
     except DevRayError as exc:
         return _err(exc.message, exc.code)
 
+    exclude_columns = arguments.get("exclude_columns") or []
+    split_manifest_id = arguments.get("split_manifest_id")
+
+    manifest = None
+    if split_manifest_id:
+        try:
+            df, manifest = development_rows_from_manifest(config, df, split_manifest_id)
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+    cv_strategy = (
+        "timeseries"
+        if manifest is not None and manifest.split_type == "time"
+        else ("stratified" if task_type == "classification" else "kfold")
+    )
+
     try:
         result = run_automl(
             df=df,
@@ -203,6 +253,8 @@ async def get_model_leaderboard_tool(
             max_time_seconds=max_time,
             random_state=random_state,
             n_splits=n_splits,
+            exclude_columns=exclude_columns,
+            cv_strategy=cv_strategy,
         )
     except (DevRayError, ValueError) as exc:
         return _err(str(exc), exc.code if isinstance(exc, DevRayError) else "validation_error")

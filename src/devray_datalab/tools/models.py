@@ -13,6 +13,7 @@ from devray_datalab.core.preprocessing import (
     PreprocessingArtifact,
     transform_features,
 )
+from devray_datalab.core.splits import _dataset_fingerprint
 from devray_datalab.core.trainer import Trainer
 from devray_datalab.tools.storage import (
     ARTIFAKIND_MODEL,
@@ -69,6 +70,10 @@ async def export_model_tool(config: DevRayConfig, arguments: dict) -> list[TextC
     if not artifact_name:
         return _err("Required argument: 'artifact_name'.", "validation_error")
 
+    exclude_columns = arguments.get("exclude_columns") or []
+    split_manifest_id = arguments.get("split_manifest_id")
+    dataset_fingerprint = None
+
     # Determine source: either an already-trained model handle, or train now.
     artifact: PreprocessingArtifact | None = None
     model: BaseEstimator | None = None
@@ -106,13 +111,18 @@ async def export_model_tool(config: DevRayConfig, arguments: dict) -> list[TextC
                 test_size=float(arguments.get("test_size", 0.2)),
                 random_state=int(arguments.get("random_state", 42)),
                 stratify=bool(arguments.get("stratify", True)),
+                exclude_columns=exclude_columns,
+                split_manifest_id=split_manifest_id,
             )
             metrics = result.get("metrics")
             train_info = {
                 "n_train": result.get("n_train"),
                 "n_test": result.get("n_test"),
                 "stratified": result.get("stratified"),
+                "excluded_columns": result.get("excluded_columns"),
+                "split_manifest_id": result.get("split_manifest_id"),
             }
+            dataset_fingerprint = _dataset_fingerprint(df)
         except DevRayError as exc:
             return _err(exc.message, exc.code)
         except Exception as exc:  # noqa: BLE001
@@ -144,6 +154,9 @@ async def export_model_tool(config: DevRayConfig, arguments: dict) -> list[TextC
         "metadata": {
             "created_by": "devray_datalab_mcp",
             "package_versions": _package_metadata(),
+            "excluded_columns": train_info.get("excluded_columns", []),
+            "split_manifest_id": train_info.get("split_manifest_id"),
+            "dataset_fingerprint": dataset_fingerprint,
         },
     }
     # Capture fitted model hyperparameters where available.
@@ -165,6 +178,9 @@ async def export_model_tool(config: DevRayConfig, arguments: dict) -> list[TextC
             "model": type(model).__name__,
             "features": artifact.feature_columns,
             "target": artifact.target_column,
+            "excluded_columns": train_info.get("excluded_columns", []),
+            "split_manifest_id": train_info.get("split_manifest_id"),
+            "dataset_fingerprint": dataset_fingerprint,
             "metrics": metrics,
             "train_info": train_info,
             "note": "Artifact stored locally. Use 'predict' to generate predictions.",

@@ -328,6 +328,32 @@ def validate_split_manifest(
     }
 
 
+def development_rows_from_manifest(
+    config: DevRayConfig, df: pd.DataFrame, manifest_id: str
+) -> tuple[pd.DataFrame, SplitManifest]:
+    """Load and validate a manifest, returning df restricted to train+val rows.
+
+    The protected test holdout is excluded from the returned dataframe. The
+    dataset fingerprint is validated against the supplied dataframe so a
+    changed dataset cannot silently reuse stale indices.
+    """
+    store = SplitStore(config)
+    manifest = store.load(manifest_id)
+    if manifest is None:
+        raise DatasetError(f"Split manifest not found: {manifest_id}")
+
+    if manifest.dataset_fingerprint != _dataset_fingerprint(df):
+        raise ValidationError(
+            "Dataset fingerprint mismatch: dataset changed since the manifest was created."
+        )
+
+    cv_indices = list(manifest.train_indices) + list(manifest.val_indices)
+    if not cv_indices:
+        raise ValidationError("Manifest has no train/validation rows.")
+
+    return df.iloc[cv_indices].reset_index(drop=True), manifest
+
+
 def list_split_manifests(config: DevRayConfig) -> list[SplitManifest]:
     """List all stored split manifests, newest first."""
     store = SplitStore(config)
