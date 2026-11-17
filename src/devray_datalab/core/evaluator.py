@@ -161,16 +161,22 @@ def regression_explanation() -> str:
     )
 
 
-def _safe_log_loss(y_true: np.ndarray, y_proba: np.ndarray) -> float | None:
+def _safe_log_loss(
+    y_true: np.ndarray, y_proba: np.ndarray, labels: np.ndarray | None = None
+) -> float | None:
     try:
-        return float(log_loss(y_true, y_proba))
+        return float(log_loss(y_true, y_proba, labels=labels))
     except Exception:  # noqa: BLE001
         return None
 
 
-def _safe_brier(y_true: np.ndarray, y_proba: np.ndarray) -> float | None:
+def _safe_brier(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    pos_label: Any = None,
+) -> float | None:
     try:
-        return float(brier_score_loss(y_true, y_proba[:, 1]))
+        return float(brier_score_loss(y_true, y_prob, pos_label=pos_label))
     except Exception:  # noqa: BLE001
         return None
 
@@ -182,14 +188,66 @@ def _safe_pr_auc(y_true: np.ndarray, y_proba: np.ndarray) -> float | None:
         return None
 
 
+def _binary_positive_label(classes: np.ndarray) -> Any:
+    """Determine the positive label for binary classification.
+
+    Documented deterministic policy (in priority order):
+      1. Integer labels {0, 1} -> positive = 1
+      2. String labels {"no", "yes"} -> positive = "yes"
+      3. String labels {"false", "true"} -> positive = "true"
+      4. String labels {"0", "1"} -> positive = "1"
+      5. Otherwise -> raise ValidationError (never silently guess)
+
+    This prevents semantically incorrect positive-class selection on
+    ambiguous string targets such as "spam"/"ham" or "cat"/"dog".
+    """
+    if len(classes) != 2:
+        return None
+
+    label_set = set(classes.tolist())
+    known = {
+        frozenset({0, 1}): 1,
+        frozenset({"no", "yes"}): "yes",
+        frozenset({"false", "true"}): "true",
+        frozenset({"0", "1"}): "1",
+    }
+    for key, value in known.items():
+        if label_set == key:
+            return value
+
+    raise ValidationError(
+        "Cannot determine positive label for binary classes "
+        f"{sorted(map(str, classes))}. Use labels like 0/1, no/yes, "
+        "false/true, or specify positive_label explicitly."
+    )
+
+
 def evaluate_classification(
-    y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray | None = None
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_proba: np.ndarray | None = None,
+    classes: np.ndarray | None = None,
+    pos_label: Any = None,
 ) -> ClassificationMetrics:
-    """Compute classification metrics with zero-division safety."""
-    classes = np.unique(y_true)
+    """Compute classification metrics with zero-division safety.
+
+    ``classes`` is the estimator's ``classes_`` array (sorted unique labels)
+    used to align probability columns with class labels. ``pos_label`` is the
+    positive class for binary metrics; when omitted it is auto-detected using
+    the documented positive-label policy.
+    """
+    if classes is None:
+        classes = np.unique(y_true)
+    classes = np.asarray(classes)
     is_binary = len(classes) == 2
     average = "binary" if is_binary else "macro"
     zero_division = 0
+
+    # Determine positive label for binary classification.
+    if is_binary and pos_label is None:
+        pos_label = _binary_positive_label(classes)
+    elif not is_binary:
+        pos_label = None
 
     try:
         cm = confusion_matrix(y_true, y_pred, labels=classes)
@@ -204,17 +262,20 @@ def evaluate_classification(
     if y_proba is not None:
         proba = np.asarray(y_proba)
         if is_binary and proba.ndim == 2 and proba.shape[1] >= 2:
-            pos = proba[:, 1]
+            # Align probability column with the positive class using the
+            # estimator's actual class ordering, not a hardcoded index.
+            pos_idx = list(classes).index(pos_label)
+            pos = proba[:, pos_idx]
             try:
                 roc_auc = float(roc_auc_score(y_true, pos))
             except Exception:  # noqa: BLE001
                 roc_auc = None
             try:
-                pr_auc = float(average_precision_score(y_true, pos))
+                pr_auc = float(average_precision_score(y_true, pos, pos_label=pos_label))
             except Exception:  # noqa: BLE001
                 pr_auc = None
-            log_loss_val = _safe_log_loss(y_true, proba)
-            brier_val = _safe_brier(y_true, proba)
+            log_loss_val = _safe_log_loss(y_true, proba, labels=classes)
+            brier_val = _safe_brier(y_true, pos, pos_label=pos_label)
         elif proba.ndim == 1:
             try:
                 pr_auc = float(average_precision_score(y_true, proba))
@@ -231,10 +292,35 @@ def evaluate_classification(
             )
         ),
         precision=float(
-            precision_score(y_true, y_pred, average=average, zero_division=zero_division)
+            precision_score(
+                y_true,
+                y_pred,
+                labels=classes,
+                average=average,
+                pos_label=pos_label,
+                zero_division=zero_division,
+            )
         ),
-        recall=float(recall_score(y_true, y_pred, average=average, zero_division=zero_division)),
-        f1=float(f1_score(y_true, y_pred, average=average, zero_division=zero_division)),
+        recall=float(
+            recall_score(
+                y_true,
+                y_pred,
+                labels=classes,
+                average=average,
+                pos_label=pos_label,
+                zero_division=zero_division,
+            )
+        ),
+        f1=float(
+            f1_score(
+                y_true,
+                y_pred,
+                labels=classes,
+                average=average,
+                pos_label=pos_label,
+                zero_division=zero_division,
+            )
+        ),
         f1_macro=float(f1_score(y_true, y_pred, average="macro", zero_division=zero_division)),
         f1_weighted=float(
             f1_score(y_true, y_pred, average="weighted", zero_division=zero_division)
@@ -432,7 +518,12 @@ def cross_validate_with_preprocessing(
                 y_proba = None
 
         if is_classification:
-            m = evaluate_classification(np.asarray(y_test), np.asarray(y_pred), y_proba)
+            m = evaluate_classification(
+                np.asarray(y_test),
+                np.asarray(y_pred),
+                y_proba,
+                classes=model.classes_,
+            )
             m_dict = m.to_dict()
             score = (
                 m_dict["roc_auc"]
@@ -596,6 +687,8 @@ def calibrate_model(
 def optimize_decision_threshold(
     y_true: np.ndarray,
     y_proba: np.ndarray,
+    classes: np.ndarray | None = None,
+    pos_label: Any = None,
     objective: str = "f1",
     precision_min: float | None = None,
     recall_min: float | None = None,
@@ -610,22 +703,37 @@ def optimize_decision_threshold(
     Results are computed on validation probabilities only; never tune against
     protected holdout data.
     """
+    if classes is None:
+        classes = np.unique(y_true)
+    classes = np.asarray(classes)
+    if len(classes) != 2:
+        raise ValidationError("optimize_decision_threshold requires binary targets.")
+
+    if pos_label is None:
+        pos_label = _binary_positive_label(classes)
+
+    # Align probability column with the positive class using the estimator's
+    # actual class ordering.
     if y_proba.ndim == 2 and y_proba.shape[1] >= 2:
-        scores = y_proba[:, 1]
+        pos_idx = list(classes).index(pos_label)
+        scores = y_proba[:, pos_idx]
     elif y_proba.ndim == 1:
         scores = y_proba
     else:
         raise ValidationError("Unsupported probability shape.")
+
+    # Encode y_true as 1 for positive, 0 for negative.
+    y_true_bin = (y_true == pos_label).astype(int)
 
     thresholds = np.linspace(0.001, 0.999, 999)
     best: dict[str, Any] | None = None
 
     for thr in thresholds:
         y_pred = (scores >= thr).astype(int)
-        tp = int(((y_pred == 1) & (y_true == 1)).sum())
-        fp = int(((y_pred == 1) & (y_true == 0)).sum())
-        tn = int(((y_pred == 0) & (y_true == 0)).sum())
-        fn = int(((y_pred == 0) & (y_true == 1)).sum())
+        tp = int(((y_pred == 1) & (y_true_bin == 1)).sum())
+        fp = int(((y_pred == 1) & (y_true_bin == 0)).sum())
+        tn = int(((y_pred == 0) & (y_true_bin == 0)).sum())
+        fn = int(((y_pred == 0) & (y_true_bin == 1)).sum())
 
         if cost_matrix is not None:
             cost = (

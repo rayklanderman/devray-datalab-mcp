@@ -345,7 +345,12 @@ class Trainer:
                 y_proba = None
 
         if task_type == "classification":
-            metrics = evaluate_classification(np.asarray(y_test), np.asarray(y_pred), y_proba)
+            metrics = evaluate_classification(
+                np.asarray(y_test),
+                np.asarray(y_pred),
+                y_proba,
+                classes=model.classes_,
+            )
         else:
             metrics = evaluate_regression(np.asarray(y_test), np.asarray(y_pred))
 
@@ -493,7 +498,12 @@ class Trainer:
                 y_proba = None
 
         if task_type == "classification":
-            metrics = evaluate_classification(np.asarray(y_test), np.asarray(y_pred), y_proba)
+            metrics = evaluate_classification(
+                np.asarray(y_test),
+                np.asarray(y_pred),
+                y_proba,
+                classes=model.classes_,
+            )
         else:
             metrics = evaluate_regression(np.asarray(y_test), np.asarray(y_pred))
 

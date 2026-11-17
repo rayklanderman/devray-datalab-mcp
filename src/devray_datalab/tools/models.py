@@ -353,6 +353,9 @@ async def predict_tool(config: DevRayConfig, arguments: dict) -> list[TextConten
             probabilities = proba.tolist()
         except Exception:  # pragma: no cover - best effort
             probabilities = None
+    classes = None
+    if hasattr(model, "classes_"):
+        classes = [str(c) for c in model.classes_]
 
     return _ok(
         {
@@ -363,6 +366,7 @@ async def predict_tool(config: DevRayConfig, arguments: dict) -> list[TextConten
                 float(p) if isinstance(p, (np.floating, float)) else p for p in predictions
             ],
             "probabilities": probabilities,
+            "classes": classes,
             "schema_valid": True,
             "ignored_extra_columns": extra,
             "warnings": warnings,
