@@ -63,23 +63,27 @@ async def inspect_dataset_tool(config: DevRayConfig, arguments: dict) -> list[Te
     except DevRayError as exc:
         return _err(exc.message, exc.code)
 
-    max_rows = arguments.get("max_rows", config.max_preview_rows)
-    # QA-009: reject unsupported types and invalid ranges with clear errors.
-    # Defaults apply only when the optional parameter is omitted.
-    if max_rows is not None:
-        if isinstance(max_rows, bool) or not isinstance(max_rows, (int, float)):
+    max_rows = config.max_preview_rows
+    # QA-009: default applies only when the parameter is genuinely omitted.
+    # Explicit null, booleans, floats, containers, and out-of-range integers
+    # are all rejected; no coercion or truncation is performed.
+    if "max_rows" in arguments:
+        max_rows = arguments["max_rows"]
+        if max_rows is None:
             return _err(
-                f"max_rows must be a number, got {type(max_rows).__name__}.",
+                "max_rows must be an integer between 1 and 100; got null.",
                 "validation_error",
             )
-        max_rows = int(max_rows)
+        if isinstance(max_rows, bool) or not isinstance(max_rows, int):
+            return _err(
+                f"max_rows must be an integer between 1 and 100, got {type(max_rows).__name__}.",
+                "validation_error",
+            )
         if max_rows < 1 or max_rows > 100:
             return _err(
                 f"max_rows must be between 1 and 100, got {max_rows}.",
                 "validation_error",
             )
-    else:
-        max_rows = config.max_preview_rows
 
     delimiter = arguments.get("delimiter")
 

@@ -276,6 +276,11 @@ class Trainer:
             if val_indices:
                 X_test = X.iloc[val_indices]
                 y_test = y.iloc[val_indices]
+            elif manifest is not None and manifest.protected_holdout:
+                raise TrainingError(
+                    "Protected holdout requires a validation partition; no "
+                    "validation rows available for development-stage evaluation."
+                )
             else:
                 X_test = X.iloc[test_indices]
                 y_test = y.iloc[test_indices]
@@ -437,6 +442,11 @@ class Trainer:
             if val_indices:
                 X_test = X.iloc[val_indices]
                 y_test = y.iloc[val_indices]
+            elif manifest is not None and manifest.protected_holdout:
+                raise TrainingError(
+                    "Protected holdout requires a validation partition; no "
+                    "validation rows available for development-stage evaluation."
+                )
             else:
                 X_test = X.iloc[test_indices]
                 y_test = y.iloc[test_indices]

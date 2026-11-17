@@ -147,6 +147,7 @@ def test_protected_holdout_never_enters_training(config):
         dataset_name="holdout.csv",
         split_type="random",
         test_size=0.25,
+        val_size=0.2,
         random_state=42,
     )
     report = validate_split_manifest(
@@ -174,7 +175,7 @@ def test_protected_holdout_never_enters_training(config):
     body = data["data"]
     # Training uses only manifest train rows; test = protected holdout rows.
     assert body["n_train"] == manifest.n_train
-    assert body["n_test"] == manifest.n_test
+    assert body["n_test"] == manifest.n_val
     assert body["split_manifest_id"] == manifest.manifest_id
     assert "duration" not in body["features"]
     assert "duration" not in body["numeric_features"]

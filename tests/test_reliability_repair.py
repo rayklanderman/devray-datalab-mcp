@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import time
 import uuid
 
 import pandas as pd
@@ -71,6 +72,8 @@ def _make_manifest(
     val_indices: list[int] | None = None,
     test_indices: list[int] | None = None,
     random_state: int = 42,
+    group_column: str | None = None,
+    time_column: str | None = None,
 ) -> str:
     n = len(df)
     if train_indices is None:
@@ -95,8 +98,8 @@ def _make_manifest(
         n_val=len(val_indices),
         n_test=len(test_indices),
         stratify_column=None,
-        group_column=None,
-        time_column=None,
+        group_column=group_column,
+        time_column=time_column,
         random_state=random_state,
         protected_holdout=True,
     )
@@ -725,3 +728,333 @@ def test_qa009_invalid_max_rows_rejected(config, classification_csv):
     payload = _payload(result)
     assert payload["ok"] is True
     assert len(payload["data"]["preview"]) <= 3
+
+
+# ---------------------------------------------------------------------------
+# QA-001 follow-up: incomplete partition coverage
+# ---------------------------------------------------------------------------
+
+
+def test_qa001_incomplete_coverage_rejected(config, classification_csv):
+    """Manifest omitting a dataset row (149/150 coverage) must be rejected."""
+    import pandas as pd
+
+    df = pd.read_csv(classification_csv)
+    name = "sample_classification.csv"
+
+    # Omit row 0 from train; counts adjusted truthfully (89 train, 30 val, 30 test = 149 listed).
+    mid = _make_manifest(
+        config,
+        df,
+        name,
+        split_type="time",
+        train_indices=list(range(1, 90)),
+        val_indices=list(range(90, 120)),
+        test_indices=list(range(120, 150)),
+    )
+
+    report = validate_manifest_for_consumption(
+        config=config, manifest_id=mid, df=df, dataset_name=name
+    )
+    assert report["valid"] is False
+    assert any("missing" in e.lower() for e in report["errors"]), report["errors"]
+
+    # Public validator must also report invalid.
+    rep2 = validate_split_manifest(config=config, manifest_id=mid, df=df, dataset_name=name)
+    assert rep2["valid"] is False
+    assert any("missing" in e.lower() for e in rep2["errors"]), rep2["errors"]
+
+    base_args = {
+        "name": name,
+        "target_column": "purchased",
+        "task_type": "classification",
+        "model_name": "logistic_regression",
+        "split_manifest_id": mid,
+        "exclude_columns": [],
+    }
+    cases = [
+        (train_baseline_tool, dict(base_args), "train_baseline"),
+        (
+            compare_models_tool,
+            {**base_args, "models": ["logistic_regression"], "cv": 2},
+            "compare_models",
+        ),
+        (
+            automl_run_tool,
+            {
+                **base_args,
+                "models": ["logistic_regression"],
+                "cv": 2,
+                "max_trials": 1,
+                "max_time_seconds": 10,
+            },
+            "automl_run",
+        ),
+        (
+            tune_model_tool,
+            {**base_args, "cv": 2, "max_trials": 1, "max_time_seconds": 10},
+            "tune_model",
+        ),
+        (
+            export_model_tool,
+            {**base_args, "artifact_name": "qa001_incomplete_model"},
+            "export_model",
+        ),
+        (
+            start_training_job_tool,
+            dict(base_args),
+            "start_training_job",
+        ),
+    ]
+    for tool, args, label in cases:
+        result = _call(tool, config, args)
+        payload = _payload(result)
+        assert payload["ok"] is False, f"{label} accepted incomplete manifest"
+        assert payload["error"]["code"] == "validation_error", label
+
+
+def test_qa001_validator_consistent_reverse_and_group(config, classification_csv):
+    """Public validator must agree with consumers on reversed-time and crossed-group."""
+    import pandas as pd
+
+    df = pd.read_csv(classification_csv)
+    name = "sample_classification.csv"
+
+    # Reversed chronological: train after test.
+    mid_rev = _make_manifest(
+        config,
+        df,
+        name,
+        split_type="time",
+        train_indices=list(range(10, 20)),
+        val_indices=list(range(5, 10)),
+        test_indices=list(range(0, 5)),
+    )
+    rep = validate_split_manifest(config=config, manifest_id=mid_rev, df=df, dataset_name=name)
+    assert rep["valid"] is False
+    assert any("chronological" in e.lower() for e in rep["errors"]), rep["errors"]
+
+    # Crossed-group: train and test share a group (complete coverage).
+    dfg = df.copy()
+    dfg["group"] = [i % 5 for i in range(len(df))]
+    mid_grp = _make_manifest(
+        config,
+        dfg,
+        name,
+        split_type="group",
+        group_column="group",
+        train_indices=list(range(0, 10)),
+        val_indices=list(range(10, 15)),
+        test_indices=list(range(15, 20)),  # groups 0-4 overlap train groups 0-4
+    )
+    rep = validate_split_manifest(config=config, manifest_id=mid_grp, df=dfg, dataset_name=name)
+    assert rep["valid"] is False
+    assert any("group" in e.lower() for e in rep["errors"]), rep["errors"]
+
+
+# ---------------------------------------------------------------------------
+# QA-002 follow-up: protected manifest without validation partition
+# ---------------------------------------------------------------------------
+
+
+def _make_no_val_manifest(config: DevRayConfig, df: pd.DataFrame, dataset_name: str) -> str:
+    """Manifest with train=0..119, no validation, protected test=120..149."""
+    return _make_manifest(
+        config,
+        df,
+        dataset_name,
+        split_type="time",
+        train_indices=list(range(0, 120)),
+        val_indices=[],
+        test_indices=list(range(120, 150)),
+    )
+
+
+def test_qa002_no_validation_partition_rejected(config, classification_csv):
+    """Protected manifest with no validation rows must fail clearly in all six consumers."""
+    df = pd.read_csv(classification_csv)
+
+    # Extend dataset to 150 rows to match the acceptance fixture shape.
+    extra = []
+    for i in range(20, 150):
+        extra.append(
+            {
+                "age": 20 + i,
+                "income": 30000 + i * 1000,
+                "credit_score": 600 + i,
+                "category": "electronics" if i % 3 == 0 else "clothing",
+                "region": "north" if i % 2 == 0 else "south",
+                "purchased": i % 2,
+            }
+        )
+    df_ext = pd.concat([df, pd.DataFrame(extra)], ignore_index=True)
+    name_ext = _write_csv(config, "qa002_no_val.csv", df_ext)
+
+    mid = _make_no_val_manifest(config, df_ext, name_ext)
+
+    base_args = {
+        "name": name_ext,
+        "target_column": "purchased",
+        "task_type": "classification",
+        "model_name": "logistic_regression",
+        "split_manifest_id": mid,
+        "exclude_columns": [],
+    }
+    cases = [
+        (train_baseline_tool, dict(base_args), "train_baseline"),
+        (
+            compare_models_tool,
+            {**base_args, "models": ["logistic_regression"], "cv": 2},
+            "compare_models",
+        ),
+        (
+            automl_run_tool,
+            {
+                **base_args,
+                "models": ["logistic_regression"],
+                "cv": 2,
+                "max_trials": 1,
+                "max_time_seconds": 10,
+            },
+            "automl_run",
+        ),
+        (
+            tune_model_tool,
+            {**base_args, "cv": 2, "max_trials": 1, "max_time_seconds": 10},
+            "tune_model",
+        ),
+        (
+            export_model_tool,
+            {**base_args, "artifact_name": "qa002_no_val_model"},
+            "export_model",
+        ),
+        (
+            start_training_job_tool,
+            dict(base_args),
+            "start_training_job",
+        ),
+    ]
+    for tool, args, label in cases:
+        result = _call(tool, config, args)
+        payload = _payload(result)
+        if label == "start_training_job":
+            # Submission succeeds (manifest is valid); failure is async.
+            assert payload["ok"] is True, f"{label} submission failed: {payload.get('error')}"
+            job_id = payload["data"]["job_id"]
+            # Poll until terminal; sleep to let the background worker run.
+            st = None
+            for _ in range(100):
+                time.sleep(0.1)
+                status_result = _call(get_training_status_tool, config, {"job_id": job_id})
+                status_payload = _payload(status_result)
+                st = status_payload["data"].get("status")
+                if st in ("failed", "completed"):
+                    break
+            assert st == "failed", f"{label} job did not fail: {st}"
+            err = status_payload["data"].get("error", "").lower()
+            assert "validation" in err or "protected" in err, (
+                f"{label} job error not about protected holdout: "
+                f"{status_payload['data'].get('error')}"
+            )
+        elif label in ("compare_models", "automl_run", "tune_model"):
+            # CV-based tools operate on train-only development rows; no
+            # protected test rows enter folds. They succeed without metrics leak.
+            assert payload["ok"] is True, f"{label} unexpectedly failed: {payload.get('error')}"
+        else:
+            # Trainer-based tools must fail rather than evaluate on test rows.
+            assert payload["ok"] is False, (
+                f"{label} accepted no-val protected manifest: {payload.get('error')}"
+            )
+
+
+def test_qa002_no_validation_partition_no_protected_metrics(config, classification_csv):
+    """With no validation partition, no protected-test metrics may leak."""
+    df = pd.read_csv(classification_csv)
+
+    extra = []
+    for i in range(20, 150):
+        extra.append(
+            {
+                "age": 20 + i,
+                "income": 30000 + i * 1000,
+                "credit_score": 600 + i,
+                "category": "electronics" if i % 3 == 0 else "clothing",
+                "region": "north" if i % 2 == 0 else "south",
+                "purchased": i % 2,
+            }
+        )
+    df_ext = pd.concat([df, pd.DataFrame(extra)], ignore_index=True)
+    name_ext = _write_csv(config, "qa002_no_val2.csv", df_ext)
+
+    mid = _make_no_val_manifest(config, df_ext, name_ext)
+
+    # train_baseline must fail, not expose protected metrics.
+    result = _call(
+        train_baseline_tool,
+        config,
+        {
+            "name": name_ext,
+            "target_column": "purchased",
+            "task_type": "classification",
+            "model_name": "logistic_regression",
+            "split_manifest_id": mid,
+            "exclude_columns": [],
+        },
+    )
+    payload = _payload(result)
+    assert payload["ok"] is False
+    assert "validation" in payload["error"]["code"] or "training" in payload["error"]["code"]
+    msg = payload["error"]["message"].lower()
+    assert "validation" in msg or "protected" in msg or "partition" in msg, msg
+
+
+# ---------------------------------------------------------------------------
+# QA-009 follow-up: null and fractional preview limits
+# ---------------------------------------------------------------------------
+
+
+def test_qa009_null_and_fractional_max_rows_rejected(config, classification_csv):
+    """Explicit null and fractional max_rows must be rejected, not coerced."""
+    cases = [
+        (None, "null"),
+        (100.5, "float above cap"),
+        (100.9, "float just below cap"),
+        (1.5, "in-range float"),
+        ("bad", "bad string"),
+        (True, "boolean true"),
+        (False, "boolean false"),
+        ([5], "list"),
+        ({"max": 5}, "dict"),
+        (0, "zero"),
+        (-1, "negative"),
+        (101, "above cap"),
+    ]
+    for value, label in cases:
+        result = _call(
+            inspect_dataset_tool,
+            config,
+            {"name": "sample_classification.csv", "max_rows": value},
+        )
+        payload = _payload(result)
+        assert payload["ok"] is False, f"{label} ({value!r}) was accepted"
+        assert payload["error"]["code"] == "validation_error", label
+
+
+def test_qa009_valid_limits_still_work(config, classification_csv):
+    """Omitted max_rows defaults to 25; valid integers 1..100 work."""
+    # Omitted -> default 25.
+    result = _call(inspect_dataset_tool, config, {"name": "sample_classification.csv"})
+    payload = _payload(result)
+    assert payload["ok"] is True
+    assert len(payload["data"]["preview"]) <= 25
+
+    # Valid integer limits.
+    for limit in (1, 3, 100):
+        result = _call(
+            inspect_dataset_tool,
+            config,
+            {"name": "sample_classification.csv", "max_rows": limit},
+        )
+        payload = _payload(result)
+        assert payload["ok"] is True, f"limit {limit} rejected"
+        assert len(payload["data"]["preview"]) <= limit

@@ -316,10 +316,50 @@ def validate_split_manifest(
     if not test_set:
         errors.append("Test set is empty.")
 
-    # Coverage: every index should appear in exactly one set.
+    # Coverage: every dataset row must appear in exactly one partition.
     covered = train_set | val_set | test_set
-    if len(covered) != len(all_idx):
-        errors.append("Some indices appear in multiple splits or are missing.")
+    expected = set(range(n))
+    if covered != expected:
+        missing = sorted(expected - covered)
+        extra = sorted(covered - expected)
+        msg_parts: list[str] = []
+        if missing:
+            msg_parts.append(f"missing row index(es): {missing[:10]}")
+        if extra:
+            msg_parts.append(f"unexpected row index(es): {extra[:10]}")
+        errors.append("Incomplete partition coverage: " + "; ".join(msg_parts))
+
+    # Chronological ordering for time-based splits: train < val < test.
+    if manifest.split_type == "time":
+        ti = list(manifest.train_indices)
+        vi = list(manifest.val_indices)
+        tei = list(manifest.test_indices)
+        if train_set and val_set and max(ti) >= min(vi):
+            errors.append(
+                "Chronological split violated: training indices must precede validation indices."
+            )
+        if train_set and test_set and max(ti) >= min(tei):
+            errors.append(
+                "Chronological split violated: training indices must precede test indices."
+            )
+        if val_set and test_set and max(vi) >= min(tei):
+            errors.append(
+                "Chronological split violated: validation indices must precede test indices."
+            )
+
+    # Group separation for group-based splits.
+    if manifest.split_type == "group" and manifest.group_column:
+        if manifest.group_column in df.columns:
+            groups = df[manifest.group_column]
+            train_groups = {groups.iloc[i] for i in train_set} if train_set else set()
+            val_groups = {groups.iloc[i] for i in val_set} if val_set else set()
+            test_groups = {groups.iloc[i] for i in test_set} if test_set else set()
+            if train_groups & test_groups:
+                errors.append("Train and test groups overlap (protected holdout violated).")
+            if train_groups & val_groups:
+                errors.append("Train and validation groups overlap.")
+            if val_groups & test_groups:
+                errors.append("Validation and test groups overlap.")
 
     valid = len(errors) == 0
 
@@ -431,10 +471,18 @@ def validate_manifest_for_consumption(
     if not test_set:
         errors.append("Test set is empty.")
 
-    # Coverage: every index appears in exactly one set.
+    # Coverage: every dataset row must appear in exactly one partition.
     covered = train_set | val_set | test_set
-    if len(covered) != len(all_idx):
-        errors.append("Some indices appear in multiple splits or are missing.")
+    expected = set(range(n))
+    if covered != expected:
+        missing = sorted(expected - covered)
+        extra = sorted(covered - expected)
+        msg_parts: list[str] = []
+        if missing:
+            msg_parts.append(f"missing row index(es): {missing[:10]}")
+        if extra:
+            msg_parts.append(f"unexpected row index(es): {extra[:10]}")
+        errors.append("Incomplete partition coverage: " + "; ".join(msg_parts))
 
     # Declared partition counts match actual counts.
     if manifest.n_train != len(train_set):

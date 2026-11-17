@@ -273,7 +273,7 @@ def test_chronological_manifest_training_respects_row_order(config):
         dataset_name="chrono.csv",
         split_type="time",
         test_size=0.25,
-        val_size=0.0,
+        val_size=0.2,
         row_order=True,
         random_state=42,
     )
@@ -295,7 +295,7 @@ def test_chronological_manifest_training_respects_row_order(config):
     )
     data = _data(result)
     assert data["n_train"] == manifest.n_train
-    assert data["n_test"] == manifest.n_test
+    assert data["n_test"] == manifest.n_val
     assert data["split_manifest_id"] == manifest.manifest_id
 
 
@@ -476,6 +476,7 @@ def test_export_with_manifest_records_manifest_id(config):
         dataset_name="export_manifest.csv",
         split_type="random",
         test_size=0.25,
+        val_size=0.2,
         random_state=42,
     )
 
@@ -497,7 +498,7 @@ def test_export_with_manifest_records_manifest_id(config):
     data = _data(export)
     assert data["split_manifest_id"] == manifest.manifest_id
     assert data["train_info"]["n_train"] == manifest.n_train
-    assert data["train_info"]["n_test"] == manifest.n_test
+    assert data["train_info"]["n_test"] == manifest.n_val
 
 
 # ---------------------------------------------------------------------------
