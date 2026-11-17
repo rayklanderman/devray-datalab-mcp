@@ -60,6 +60,7 @@ async def create_split_manifest_tool(
         stratify_column = arguments.get("stratify_column")
         group_column = arguments.get("group_column")
         time_column = arguments.get("time_column")
+        row_order = bool(arguments.get("row_order", False))
         protected_holdout = bool(arguments.get("protected_holdout", True))
         delimiter = arguments.get("delimiter")
 
@@ -84,6 +85,7 @@ async def create_split_manifest_tool(
             stratify_column=stratify_column,
             group_column=group_column,
             time_column=time_column,
+            row_order=row_order,
             protected_holdout=protected_holdout,
         )
     except (DevRayError, ValueError) as exc:

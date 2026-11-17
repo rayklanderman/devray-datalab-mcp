@@ -41,7 +41,8 @@ from devray_datalab.core.preprocessing import (
     get_feature_names_out,
     transform_features,
 )
-from devray_datalab.utils.errors import TrainingError, ValidationError
+from devray_datalab.core.splits import SplitStore, _dataset_fingerprint
+from devray_datalab.utils.errors import DatasetError, TrainingError, ValidationError
 
 
 class JobStatus(str, Enum):
@@ -157,6 +158,8 @@ class Trainer:
         stratify: bool = True,
         job_id: str | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        exclude_columns: list[str] | None = None,
+        split_manifest_id: str | None = None,
     ) -> dict[str, Any]:
         """Train a single baseline model and return structured results."""
 
@@ -181,6 +184,8 @@ class Trainer:
                 test_size,
                 random_state,
                 stratify,
+                exclude_columns=exclude_columns,
+                split_manifest_id=split_manifest_id,
                 cancel_check=cancel_check,
             )
             job.status = JobStatus.COMPLETED
@@ -204,6 +209,8 @@ class Trainer:
         test_size: float,
         random_state: int,
         stratify: bool,
+        exclude_columns: list[str] | None = None,
+        split_manifest_id: str | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         from devray_datalab.utils.validation import validate_model_name, validate_task_type
@@ -221,8 +228,15 @@ class Trainer:
         if target_column not in df.columns:
             raise ValidationError(f"Target column '{target_column}' not found.")
 
+        # Normalize and drop excluded columns before any split, preprocessing
+        # fit, or model training so they can never reach a fitted model.
+        exclude_columns = exclude_columns or []
+        excluded_existing = [c for c in exclude_columns if c in df.columns and c != target_column]
+        if target_column in excluded_existing:
+            excluded_existing.remove(target_column)
+
         y = df[target_column]
-        X = df.drop(columns=[target_column])
+        X = df.drop(columns=[target_column] + excluded_existing)
 
         # Validate target suitability.
         if task_type == "classification":
@@ -232,28 +246,50 @@ class Trainer:
             if (class_counts < 2).any():
                 raise TrainingError("Each class needs at least 2 samples for stratified splitting.")
 
-        # Preprocessing fitted on the full dataframe here; the actual fit/transform
-        # on train-only happens below inside the split to avoid leakage. We build the
-        # preprocessor on training data only after splitting.
+        # Preprocessing is fit on training data only after splitting; excluded
+        # columns are already removed from X so they never enter the preprocessor.
         job.progress = 0.1
 
-        stratify_col = y if (stratify and task_type == "classification") else None
-        try:
-            X_train, X_test, y_train, y_test = train_test_split(
-                X,
-                y,
-                test_size=test_size,
-                random_state=random_state,
-                stratify=stratify_col,
-            )
-        except ValueError as exc:
-            # Stratification failed (e.g. too few samples); retry without stratify.
-            if stratify:
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, test_size=test_size, random_state=random_state
+        manifest = None
+        if split_manifest_id:
+            store = SplitStore(self.config)
+            manifest = store.load(split_manifest_id)
+            if manifest is None:
+                raise DatasetError(f"Split manifest not found: {split_manifest_id}")
+            if manifest.dataset_fingerprint != _dataset_fingerprint(df):
+                raise ValidationError(
+                    "Dataset fingerprint mismatch: dataset changed since the manifest was created."
                 )
-            else:
-                raise TrainingError(f"Train/test split failed: {exc}") from exc
+            # Protected test holdout is never used for training, preprocessing
+            # fitting, cross-validation, or hyperparameter selection.
+            train_indices = list(manifest.train_indices)
+            test_indices = list(manifest.test_indices)
+            if not train_indices:
+                raise TrainingError("Manifest train set is empty.")
+            if not test_indices:
+                raise TrainingError("Manifest test set is empty.")
+            X_train = X.iloc[train_indices]
+            X_test = X.iloc[test_indices]
+            y_train = y.iloc[train_indices]
+            y_test = y.iloc[test_indices]
+        else:
+            stratify_col = y if (stratify and task_type == "classification") else None
+            try:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X,
+                    y,
+                    test_size=test_size,
+                    random_state=random_state,
+                    stratify=stratify_col,
+                )
+            except ValueError as exc:
+                # Stratification failed (e.g. too few samples); retry without stratify.
+                if stratify:
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        X, y, test_size=test_size, random_state=random_state
+                    )
+                else:
+                    raise TrainingError(f"Train/test split failed: {exc}") from exc
 
         if len(X_test) == 0:
             raise TrainingError("Test set is empty; dataset too small to split.")
@@ -262,7 +298,8 @@ class Trainer:
         if job.is_cancel_requested() or (cancel_check and cancel_check()):
             raise TrainingError("Training cancelled.")
 
-        # Fit preprocessing on training data only.
+        # Fit preprocessing on training data only. Excluded columns are absent
+        # from X_train, so they cannot leak into the fitted preprocessor or model.
         artifact = build_preprocessor(
             X_train.assign(**{target_column: y_train}),
             target_column=target_column,
@@ -318,6 +355,8 @@ class Trainer:
             "numeric_features": artifact.numeric_features,
             "categorical_features": artifact.categorical_features,
             "preprocessed_feature_names": get_feature_names_out(artifact),
+            "excluded_columns": excluded_existing,
+            "split_manifest_id": split_manifest_id,
             "metrics": metrics.to_dict() if hasattr(metrics, "to_dict") else metrics,
             "model_fitted": True,
         }
@@ -331,8 +370,17 @@ class Trainer:
         test_size: float = 0.2,
         random_state: int = 42,
         stratify: bool = True,
+        exclude_columns: list[str] | None = None,
+        split_manifest_id: str | None = None,
     ) -> tuple[dict[str, Any], PreprocessingArtifact, BaseEstimator]:
-        """Train and return results plus the fitted preprocessor and model."""
+        """Train and return results plus the fitted preprocessor and model.
+
+        Excluded columns are dropped before any split, preprocessing fit, or
+        training so they can never reach a fitted transformer or estimator. When a
+        split manifest is supplied, only the manifest train rows are used for
+        training/preprocessing fit and the protected test holdout is never
+        touched.
+        """
 
         from devray_datalab.utils.validation import validate_model_name, validate_task_type
 
@@ -344,27 +392,60 @@ class Trainer:
         if target_column not in df.columns:
             raise ValidationError(f"Target column '{target_column}' not found.")
 
+        # Normalize and drop excluded columns before any split or preprocessing fit.
+        exclude_columns = exclude_columns or []
+        excluded_existing = [c for c in exclude_columns if c in df.columns and c != target_column]
+        if target_column in excluded_existing:
+            excluded_existing.remove(target_column)
+
         y = df[target_column]
-        X = df.drop(columns=[target_column])
+        X = df.drop(columns=[target_column] + excluded_existing)
 
         if task_type == "classification":
             if y.nunique() < 2:
                 raise TrainingError("Classification requires at least 2 target classes.")
 
-        stratify_col = y if (stratify and task_type == "classification") else None
-        try:
-            X_train, X_test, y_train, y_test = train_test_split(
-                X,
-                y,
-                test_size=test_size,
-                random_state=random_state,
-                stratify=stratify_col,
-            )
-        except ValueError:
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=test_size, random_state=random_state
-            )
+        manifest = None
+        if split_manifest_id:
+            store = SplitStore(self.config)
+            manifest = store.load(split_manifest_id)
+            if manifest is None:
+                raise DatasetError(f"Split manifest not found: {split_manifest_id}")
+            if manifest.dataset_fingerprint != _dataset_fingerprint(df):
+                raise ValidationError(
+                    "Dataset fingerprint mismatch: dataset changed since the manifest was created."
+                )
+            # Protected test holdout is never used for training or preprocessing fit.
+            train_indices = list(manifest.train_indices)
+            test_indices = list(manifest.test_indices)
+            if not train_indices:
+                raise TrainingError("Manifest train set is empty.")
+            if not test_indices:
+                raise TrainingError("Manifest test set is empty.")
+            X_train = X.iloc[train_indices]
+            X_test = X.iloc[test_indices]
+            y_train = y.iloc[train_indices]
+            y_test = y.iloc[test_indices]
+        else:
+            stratify_col = y if (stratify and task_type == "classification") else None
+            try:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X,
+                    y,
+                    test_size=test_size,
+                    random_state=random_state,
+                    stratify=stratify_col,
+                )
+            except ValueError:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=test_size, random_state=random_state
+                )
 
+        if len(X_test) == 0:
+            raise TrainingError("Test set is empty; dataset too small to split.")
+
+        # Fit preprocessing on training data only. Excluded columns are absent
+        # from X_train, so they cannot leak into the fitted preprocessor or model.
         artifact = build_preprocessor(
             X_train.assign(**{target_column: y_train}),
             target_column=target_column,
@@ -374,7 +455,10 @@ class Trainer:
         X_test_t = transform_features(artifact, X_test)
 
         model = model_cls(**_model_init_kwargs(model_cls, random_state))
-        model.fit(X_train_t, y_train)
+        try:
+            model.fit(X_train_t, y_train)
+        except Exception as exc:
+            raise TrainingError(f"Model training failed: {exc}") from exc
 
         y_pred = model.predict(X_test_t)
         y_proba = None
@@ -390,6 +474,7 @@ class Trainer:
             metrics = evaluate_regression(np.asarray(y_test), np.asarray(y_pred))
 
         results = {
+            "status": "completed",
             "task_type": task_type,
             "model": model_name,
             "test_size": test_size,
@@ -400,5 +485,7 @@ class Trainer:
             "features": artifact.feature_columns,
             "target": target_column,
             "metrics": metrics.to_dict() if hasattr(metrics, "to_dict") else metrics,
+            "excluded_columns": excluded_existing,
+            "split_manifest_id": split_manifest_id,
         }
         return results, artifact, model

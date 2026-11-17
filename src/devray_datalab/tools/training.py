@@ -14,6 +14,7 @@ from devray_datalab.config import DevRayConfig
 from devray_datalab.core.evaluator import cross_validate_with_preprocessing
 from devray_datalab.core.experiments import ExperimentStore
 from devray_datalab.core.preprocessing import build_preprocessor
+from devray_datalab.core.splits import SplitStore, _dataset_fingerprint
 from devray_datalab.core.trainer import (
     CLASSIFICATION_MODELS,
     REGRESSION_MODELS,
@@ -174,6 +175,7 @@ async def prepare_dataset_tool(config: DevRayConfig, arguments: dict) -> list[Te
     except DevRayError as exc:
         return _err(exc.message, exc.code)
 
+    exclude_columns = arguments.get("exclude_columns") or []
     delimiter = arguments.get("delimiter")
 
     try:
@@ -187,6 +189,12 @@ async def prepare_dataset_tool(config: DevRayConfig, arguments: dict) -> list[Te
 
     if target_column not in df.columns:
         return _err(f"Target column '{target_column}' not found.", "validation_error")
+
+    # Excluded columns are dropped before preprocessing so they never enter
+    # the fitted preprocessor or any downstream model.
+    excluded_existing = [c for c in exclude_columns if c in df.columns and c != target_column]
+    if excluded_existing:
+        df = df.drop(columns=excluded_existing)
 
     # Test/test split so preprocessing is fit on training data only.
     test_size = float(arguments.get("test_size", 0.2))
@@ -246,7 +254,8 @@ async def prepare_dataset_tool(config: DevRayConfig, arguments: dict) -> list[Te
             "numeric_features": artifact.numeric_features,
             "categorical_features": artifact.categorical_features,
             "n_features": len(artifact.feature_columns),
-            "note": "Preprocessing fit on training data only.",
+            "excluded_columns": excluded_existing,
+            "note": "Preprocessing fit on training data only; excluded columns dropped first.",
         }
     )
 
@@ -276,6 +285,9 @@ async def train_baseline_tool(config: DevRayConfig, arguments: dict) -> list[Tex
     random_state = int(arguments.get("random_state", 42))
     stratify = bool(arguments.get("stratify", True))
 
+    exclude_columns = arguments.get("exclude_columns") or []
+    split_manifest_id = arguments.get("split_manifest_id")
+
     delimiter = arguments.get("delimiter")
 
     try:
@@ -297,6 +309,8 @@ async def train_baseline_tool(config: DevRayConfig, arguments: dict) -> list[Tex
             test_size=test_size,
             random_state=random_state,
             stratify=stratify,
+            exclude_columns=exclude_columns,
+            split_manifest_id=split_manifest_id,
         )
     except TrainingError as exc:
         return _err(str(exc), exc.code if hasattr(exc, "code") else "training_error")
@@ -347,6 +361,9 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
     cv = int(arguments.get("cv", 5))
     cv = max(2, min(cv, 10))
 
+    exclude_columns = arguments.get("exclude_columns") or []
+    split_manifest_id = arguments.get("split_manifest_id")
+
     delimiter = arguments.get("delimiter")
 
     try:
@@ -357,6 +374,25 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
         return _err(exc.message, exc.code)
     except Exception as exc:  # noqa: BLE001
         return _err(f"Failed to load dataset: {exc}", "dataset_error")
+
+    # When a validated split manifest is supplied, restrict cross-validation
+    # (and hyperparameter selection) to train+val rows only. The protected
+    # test holdout is never used for training, preprocessing, CV, or tuning.
+    manifest = None
+    if split_manifest_id:
+        store = SplitStore(config)
+        manifest = store.load(split_manifest_id)
+        if manifest is None:
+            return _err(f"Split manifest not found: {split_manifest_id}", "validation_error")
+        if manifest.dataset_fingerprint != _dataset_fingerprint(df):
+            return _err(
+                "Dataset fingerprint mismatch: dataset changed since the manifest was created.",
+                "validation_error",
+            )
+        cv_indices = list(manifest.train_indices) + list(manifest.val_indices)
+        if not cv_indices:
+            return _err("Manifest has no train/validation rows for comparison.", "validation_error")
+        df = df.iloc[cv_indices].reset_index(drop=True)
 
     if task_type == "classification":
         model_names = list(CLASSIFICATION_MODELS.keys())
@@ -401,6 +437,7 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
                 strategy=cv_strategy,
                 n_splits=cv,
                 random_state=random_state,
+                exclude_columns=exclude_columns,
             )
         except (TrainingError, ValidationError) as exc:
             results.append(
@@ -496,6 +533,8 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
             "results": results,
             "best_model": best["model"] if best else None,
             "best_metrics": best["metrics"] if best else None,
-            "note": "Compared using consistent train/test splits and one random seed.",
+            "excluded_columns": exclude_columns,
+            "split_manifest_id": split_manifest_id,
+            "note": "Compared with consistent splits; protected holdout excluded with a manifest.",
         }
     )

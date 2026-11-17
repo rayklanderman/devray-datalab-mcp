@@ -122,6 +122,8 @@ class JobManager:
             test_size=params.get("test_size", 0.2),
             random_state=params.get("random_state", 42),
             stratify=params.get("stratify", True),
+            exclude_columns=params.get("exclude_columns"),
+            split_manifest_id=params.get("split_manifest_id"),
             cancel_check=lambda: job.cancel_requested,
         )
 
@@ -135,6 +137,8 @@ class JobManager:
         test_size: float = 0.2,
         random_state: int = 42,
         stratify: bool = True,
+        exclude_columns: list[str] | None = None,
+        split_manifest_id: str | None = None,
     ) -> str:
         """Submit a training job and return its id immediately."""
         job_id = str(uuid.uuid4())
@@ -150,6 +154,8 @@ class JobManager:
                 "test_size": test_size,
                 "random_state": random_state,
                 "stratify": stratify,
+                "exclude_columns": exclude_columns or [],
+                "split_manifest_id": split_manifest_id,
             }
             self._queue.append(job_id)
         return job_id

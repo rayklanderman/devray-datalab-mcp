@@ -237,6 +237,8 @@ def run_automl(
     random_state: int = 42,
     model_subset: list[str] | None = None,
     n_splits: int = 3,
+    exclude_columns: list[str] | None = None,
+    cv_strategy: str | None = None,
 ) -> AutoMLResult:
     """Run an automated machine learning search.
 
@@ -270,6 +272,9 @@ def run_automl(
     y = df[target_column]
     n_classes = int(y.nunique()) if task_type == "classification" else None
 
+    exclude_columns = exclude_columns or []
+    strategy = cv_strategy or ("stratified" if task_type == "classification" else "kfold")
+
     result = AutoMLResult(
         task_type=task_type,
         metric=metric,
@@ -293,10 +298,11 @@ def run_automl(
                 task_type=task_type,
                 model_cls=model_cls,
                 model_kwargs={},
-                strategy="stratified" if task_type == "classification" else "kfold",
+                strategy=strategy,
                 n_splits=n_splits,
                 random_state=random_state,
                 scoring=metric if metric != "auto" else "auto",
+                exclude_columns=exclude_columns,
             )
             # Aggregate mean of the primary metric across folds.
             key = (

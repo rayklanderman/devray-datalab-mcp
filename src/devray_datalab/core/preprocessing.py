@@ -29,6 +29,7 @@ class PreprocessingArtifact:
     task_type: str
     numeric_features: list[str] = field(default_factory=list)
     categorical_features: list[str] = field(default_factory=list)
+    categorical_categories: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _infer_feature_types(df: pd.DataFrame, target_column: str) -> tuple[list[str], list[str]]:
@@ -88,6 +89,17 @@ def build_preprocessor(
     feature_columns = [c for c in df.columns if c != target_column]
     preprocessor.fit(df[feature_columns])
 
+    # Capture the learned category vocabulary per categorical column so
+    # prediction can detect previously unseen values without re-reading the
+    # original training dataset.
+    categorical_categories: dict[str, list[str]] = {}
+    cat_transformer = preprocessor.named_transformers_.get("cat")
+    if cat_transformer is not None:
+        onehot = getattr(cat_transformer, "named_steps", {}).get("onehot")
+        if onehot is not None and getattr(onehot, "categories_", None) is not None:
+            for col, cats in zip(categorical_features, onehot.categories_, strict=False):
+                categorical_categories[col] = [str(c) for c in cats]
+
     return PreprocessingArtifact(
         preprocessor=preprocessor,
         feature_columns=feature_columns,
@@ -95,6 +107,7 @@ def build_preprocessor(
         task_type=task_type,
         numeric_features=numeric_features,
         categorical_features=categorical_features,
+        categorical_categories=categorical_categories,
     )
 
 
@@ -113,3 +126,37 @@ def get_feature_names_out(artifact: PreprocessingArtifact) -> list[str]:
         return [str(n) for n in names]
     except Exception:  # pragma: no cover - fallback for older sklearn
         return list(artifact.feature_columns)
+
+
+def categorical_encoder(artifact: PreprocessingArtifact):
+    """Return the fitted OneHotEncoder for categorical features, or None.
+
+    Falls back to inspecting the fitted ColumnTransformer when the artifact
+    does not carry cached category metadata (e.g. artifacts serialized before
+    this field existed).
+    """
+    cat_transformer = artifact.preprocessor.named_transformers_.get("cat")
+    if cat_transformer is None:
+        return None
+    return getattr(cat_transformer, "named_steps", {}).get("onehot")
+
+
+def learned_categories(artifact: PreprocessingArtifact) -> dict[str, list[str]]:
+    """Return the learned category vocabulary per categorical column.
+
+    Prefers the cached ``categorical_categories`` metadata on the artifact;
+    otherwise extracts it from the fitted OneHotEncoder. Missing values are
+    never included in the vocabulary.
+    """
+    cached = getattr(artifact, "categorical_categories", None) or {}
+    if cached:
+        return {str(k): [str(c) for c in v] for k, v in cached.items()}
+
+    encoder = categorical_encoder(artifact)
+    if encoder is None or getattr(encoder, "categories_", None) is None:
+        return {}
+    cat_features = list(artifact.categorical_features)
+    return {
+        str(col): [str(c) for c in cats]
+        for col, cats in zip(cat_features, encoder.categories_, strict=False)
+    }

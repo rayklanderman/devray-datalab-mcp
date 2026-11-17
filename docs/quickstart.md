@@ -60,6 +60,29 @@ Expected: saves a joblib artifact containing the model, preprocessing pipeline, 
 
 Expected: returns a prediction (0 or 1) plus class probabilities.
 
+### Unseen-category warnings
+
+If a prediction request contains a categorical value that was not present in
+the training data, `predict` returns the prediction along with an `unseen_category`
+warning in the response `warnings` list. Each warning identifies:
+
+- the affected feature (`column`),
+- the unseen value (`value`),
+- the number of affected records (`affected_rows`), and
+- a plain-language explanation (`message`).
+
+Warnings are informational: prediction continues normally and labels,
+probabilities, and fitted preprocessing are unchanged. A warning does not mean
+the prediction is incorrect; it only flags that the model is extrapolating on a
+category it did not learn.
+
+If the fitted encoder is configured to reject unknown categories
+(`handle_unknown="error"`), `predict` returns an `unseen_category` error
+instead of a result.
+
+This is not feature-drift analysis: it compares against the categories learned
+during training, not against the full original dataset.
+
 ## Complete prompt sequence (copy-ready)
 
 ```
@@ -81,4 +104,5 @@ Repeat the same workflow with `examples/sample_regression.csv`, target `spend`, 
 - **Train/test split** is applied before fitting the preprocessing pipeline.
 - **Stratified splitting** is used for classification where valid.
 - **Predictions validate the feature schema** — missing required features produce a clear `schema_mismatch` error.
+- **Unseen-category warnings** — prediction inputs are compared against the categories learned during training; previously unseen categorical values produce an informational `unseen_category` warning without changing the prediction.
 - **Model artifacts are local only** — stored under `DEVRAY_ARTIFACTS_DIR`.

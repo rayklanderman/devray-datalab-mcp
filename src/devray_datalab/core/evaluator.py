@@ -323,6 +323,7 @@ def _fit_preprocess_and_split(
     task_type: str,
     train_idx: np.ndarray,
     test_idx: np.ndarray,
+    exclude_columns: list[str] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, PreprocessingArtifact]:
     """Split df by index and fit preprocessing on the train portion only."""
     train_df = df.iloc[train_idx]
@@ -333,8 +334,15 @@ def _fit_preprocess_and_split(
     X_train = train_df.drop(columns=[target_column])
     X_test = test_df.drop(columns=[target_column])
 
+    # Drop excluded columns before preprocessing fit so they never reach a model.
+    exclude_columns = exclude_columns or []
+    drop_cols = [c for c in exclude_columns if c in X_train.columns]
+    if drop_cols:
+        X_train = X_train.drop(columns=drop_cols)
+        X_test = X_test.drop(columns=drop_cols)
+
     artifact = build_preprocessor(
-        train_df.assign(**{target_column: train_df[target_column]}),
+        X_train.assign(**{target_column: y_train}),
         target_column=target_column,
         task_type=task_type,
     )
@@ -355,6 +363,7 @@ def cross_validate_with_preprocessing(
     group_column: str | None = None,
     time_column: str | None = None,
     scoring: str = "auto",
+    exclude_columns: list[str] | None = None,
 ) -> CVResult:
     """Run cross-validation with preprocessing fitted independently per fold.
 
@@ -405,7 +414,7 @@ def cross_validate_with_preprocessing(
     for fold_idx, (train_idx, test_idx) in enumerate(_split(splitter, df, y_all, groups)):
         fold_sizes.append(int(len(test_idx)))
         X_train_t, X_test_t, y_train, y_test, _artifact = _fit_preprocess_and_split(
-            df, target_column, task_type, train_idx, test_idx
+            df, target_column, task_type, train_idx, test_idx, exclude_columns=exclude_columns
         )
 
         model = model_cls(**model_kwargs)
@@ -512,6 +521,7 @@ def cross_validate_classification(
     group_column: str | None = None,
     time_column: str | None = None,
     scoring: str = "auto",
+    exclude_columns: list[str] | None = None,
 ) -> CVResult:
     """Cross-validate a classification model with leakage-safe preprocessing."""
     return cross_validate_with_preprocessing(
@@ -526,6 +536,7 @@ def cross_validate_classification(
         group_column=group_column,
         time_column=time_column,
         scoring=scoring,
+        exclude_columns=exclude_columns,
     )
 
 
@@ -540,6 +551,7 @@ def cross_validate_regression(
     group_column: str | None = None,
     time_column: str | None = None,
     scoring: str = "auto",
+    exclude_columns: list[str] | None = None,
 ) -> CVResult:
     """Cross-validate a regression model with leakage-safe preprocessing."""
     return cross_validate_with_preprocessing(
@@ -554,6 +566,7 @@ def cross_validate_regression(
         group_column=group_column,
         time_column=time_column,
         scoring=scoring,
+        exclude_columns=exclude_columns,
     )
 
 

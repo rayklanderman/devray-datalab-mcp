@@ -75,6 +75,8 @@ async def start_training_job_tool(
         validate_probability(test_size, "test_size")
         random_state = int(arguments.get("random_state", 42))
         stratify = bool(arguments.get("stratify", True))
+        exclude_columns = arguments.get("exclude_columns") or []
+        split_manifest_id = arguments.get("split_manifest_id")
 
         delimiter = arguments.get("delimiter")
 
@@ -96,6 +98,8 @@ async def start_training_job_tool(
         test_size=test_size,
         random_state=random_state,
         stratify=stratify,
+        exclude_columns=exclude_columns,
+        split_manifest_id=split_manifest_id,
     )
     return _ok(
         {
@@ -105,6 +109,8 @@ async def start_training_job_tool(
             "target_column": str(target_column),
             "task_type": str(task_type),
             "model": str(model_name),
+            "exclude_columns": exclude_columns,
+            "split_manifest_id": split_manifest_id,
             "note": "Job submitted. Poll get_training_status with the job_id for results.",
         }
     )
