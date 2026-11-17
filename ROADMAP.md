@@ -2,6 +2,19 @@
 
 DevRay DataLab MCP follows [semantic versioning](https://semver.org/). Releases are published to PyPI as `devray-datalab-mcp` and registered in the official MCP Registry as `io.github.rayklanderman/devray-datalab-mcp`.
 
+## v0.3.2 — Released
+
+The following v0.3.2 items have been implemented and tested:
+
+- Faster native MCP initialization (lazy tool-module loading).
+- All 27 MCP tools correctly registered.
+- Leakage-safe training with excluded features.
+- Chronological splitting and reusable split manifests.
+- Protected test-holdout isolation.
+- AutoML, tuning and background-job safeguards.
+- Model export metadata improvements.
+- Unseen-category warnings in predictions.
+
 ## v0.3.1 — Released
 
 The following v0.3.1 items have been implemented and tested:

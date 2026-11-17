@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.2] - Released
+
+### Added
+- All 27 MCP tools correctly registered and available via `tools/list`.
+- Chronological splitting (`row_order`) and reusable split manifests (`create_split_manifest`, `validate_split_manifest`, `list_split_manifests`).
+- Protected test-holdout isolation preventing test set leakage into training.
+
+### Changed
+- Faster native MCP initialization: tool modules load lazily on first call, keeping server startup fast.
+- Leakage-safe training: `exclude_columns` honored in `prepare_dataset`, `train_baseline`, `compare_models`, `export_model`, `start_training_job`, `automl_run`, and `tune_model`; preprocessing fitted on train data only.
+- AutoML, tuning, and background-job safeguards (cooperative cancellation, trial/time limits).
+- Model export metadata improvements (schema, fingerprint, library versions recorded with artifacts).
+- Unseen-category warnings in predictions for categorical features not seen during training.
+- Server version bumped to 0.3.2.
+
 ## [0.3.1] - Released
 
 ### Fixed
