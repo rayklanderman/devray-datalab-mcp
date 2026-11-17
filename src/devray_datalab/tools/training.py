@@ -532,7 +532,7 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
                 "status": "completed",
                 "cv": cv_result.to_dict(),
                 "metrics": agg,
-                "stratified": task_type == "classification",
+                "stratified": cv_strategy in ("stratified", "stratified_group"),
                 "n_folds": cv_result.n_folds,
                 "strategy": cv_result.strategy,
             }

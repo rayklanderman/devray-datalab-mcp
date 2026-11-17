@@ -278,11 +278,17 @@ def run_automl(
     exclude_columns = exclude_columns or []
     strategy = cv_strategy or ("stratified" if task_type == "classification" else "kfold")
 
+    # Compute post-exclusion feature columns so n_features reflects actual
+    # predictors that reach preprocessing/fitting, not raw column count.
+    exclude_columns = [c for c in exclude_columns if c in df.columns and c != target_column]
+    feature_columns = [c for c in df.columns if c != target_column and c not in exclude_columns]
+    n_features_after_exclusion = len(feature_columns)
+
     result = AutoMLResult(
         task_type=task_type,
         metric=metric,
-        dataset_shape=(int(len(df)), int(df.shape[1] - 1)),
-        n_features=int(df.shape[1] - 1),
+        dataset_shape=(int(len(df)), n_features_after_exclusion),
+        n_features=n_features_after_exclusion,
         n_classes=n_classes,
     )
 
@@ -371,10 +377,13 @@ def run_automl(
                     task_type=task_type,
                     model_cls=model_cls,
                     model_kwargs=params,
-                    strategy="stratified" if task_type == "classification" else "kfold",
+                    strategy=strategy,
                     n_splits=n_splits,
                     random_state=random_state,
+                    group_column=group_column,
+                    time_column=time_column,
                     scoring=metric if metric != "auto" else "auto",
+                    exclude_columns=exclude_columns,
                 )
                 key = (
                     metric
