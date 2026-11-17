@@ -2,7 +2,7 @@
 
 DevRay DataLab MCP follows [semantic versioning](https://semver.org/). Releases are published to PyPI as `devray-datalab-mcp` and registered in the official MCP Registry as `io.github.rayklanderman/devray-datalab-mcp`.
 
-## v0.3.2 — Released
+## v0.3.2 — Ready for release
 
 The following v0.3.2 items have been implemented and tested:
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.2] - Released
+## [0.3.2] - Ready for release
 
 ### Added
 - All 27 MCP tools correctly registered and available via `tools/list`.
