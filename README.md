@@ -213,7 +213,7 @@ Add to your VS Code MCP settings (`settings.json`):
 }
 ```
 
-### Other MCP clients
+### 6. Other MCP clients
 
 DevRay DataLab MCP works with any MCP-compatible client that supports stdio transport. Use `devray-datalab-mcp` as the command with no arguments, and set `DEVRAY_WORKSPACE_DIR` and `DEVRAY_ARTIFACTS_DIR` as environment variables.
 
@@ -283,6 +283,17 @@ Optional dependencies:
 - `devray-datalab-mcp[explain]` — SHAP explanations
 - `devray-datalab-mcp[parquet]` — Parquet file support (pyarrow)
 - `devray-datalab-mcp[excel]` — Excel file support (openpyxl)
+
+## What's new in v0.3.2
+
+- **Faster native MCP initialization**: tool modules load lazily on first call, keeping server startup fast; no heavy ML imports at startup.
+- **All 27 MCP tools correctly registered**: every tool listed in the server spec is available via `tools/list`.
+- **Leakage-safe training with excluded features**: `exclude_columns` honored across prepare/train/compare/export/jobs/automl; preprocessing fitted on train data only.
+- **Chronological splitting and reusable split manifests**: `row_order` time-based splitting plus `create_split_manifest`/`validate_split_manifest`/`list_split_manifests` with dataset fingerprints.
+- **Protected test-holdout isolation**: test set kept as protected holdout, isolated from training.
+- **AutoML, tuning and background-job safeguards**: cooperative cancellation, trial and time limits.
+- **Model export metadata improvements**: schema, fingerprint, and library versions recorded with exported artifacts.
+- **Unseen-category warnings in predictions**: warns when categorical features were not seen during training.
 
 ## What's new in v0.3.1
 
