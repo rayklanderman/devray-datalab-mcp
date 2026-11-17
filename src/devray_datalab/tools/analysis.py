@@ -96,8 +96,10 @@ async def analyze_correlations_tool(config: DevRayConfig, arguments: dict) -> li
             )
 
     pairs.sort(key=lambda p: p["abs_correlation"], reverse=True)
-    strongest_positive = pairs[0] if pairs else None
-    strongest_negative = min(pairs, key=lambda p: p["correlation"]) if pairs else None
+    positives = [p for p in pairs if p["correlation"] > 0]
+    negatives = [p for p in pairs if p["correlation"] < 0]
+    strongest_positive = max(positives, key=lambda p: p["correlation"]) if positives else None
+    strongest_negative = min(negatives, key=lambda p: p["correlation"]) if negatives else None
 
     return _ok(
         {

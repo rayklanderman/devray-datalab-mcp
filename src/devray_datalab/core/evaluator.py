@@ -40,6 +40,11 @@ from sklearn.model_selection import (
     TimeSeriesSplit,
 )
 
+from devray_datalab.core.metric_policy import (
+    AUTO_METRIC,
+    CLASSIFICATION_METRICS,
+    REGRESSION_METRICS,
+)
 from devray_datalab.core.preprocessing import (
     PreprocessingArtifact,
     build_preprocessor,
@@ -497,6 +502,20 @@ def cross_validate_with_preprocessing(
     y_all = df[target_column].to_numpy()
     start = time.perf_counter()
 
+    # Validate the requested scoring metric before any fitting so an
+    # unknown/unavailable objective is rejected up front rather than producing
+    # silent null-valued trials.
+    if task_type == "classification":
+        _valid_scoring = CLASSIFICATION_METRICS
+        _is_classification_scoring = True
+    else:
+        _valid_scoring = REGRESSION_METRICS
+        _is_classification_scoring = False
+    if scoring != AUTO_METRIC and scoring not in _valid_scoring:
+        raise ValidationError(
+            f"Unsupported scoring metric '{scoring}' for task type '{task_type}'."
+        )
+
     for fold_idx, (train_idx, test_idx) in enumerate(_split(splitter, df, y_all, groups)):
         fold_sizes.append(int(len(test_idx)))
         X_train_t, X_test_t, y_train, y_test, _artifact = _fit_preprocess_and_split(
@@ -525,11 +544,11 @@ def cross_validate_with_preprocessing(
                 classes=model.classes_,
             )
             m_dict = m.to_dict()
-            score = (
-                m_dict["roc_auc"]
-                if scoring in ("auto", "roc_auc") and m_dict["roc_auc"] is not None
-                else m_dict["f1"]
-            )
+            if scoring == AUTO_METRIC:
+                # Prefer ROC-AUC when defined on the fold, otherwise F1.
+                score = m_dict["roc_auc"] if m_dict.get("roc_auc") is not None else m_dict["f1"]
+            else:
+                score = m_dict.get(scoring)
             fold_metrics.append(
                 {
                     "fold": fold_idx + 1,
@@ -551,7 +570,10 @@ def cross_validate_with_preprocessing(
         else:
             m = evaluate_regression(np.asarray(y_test), np.asarray(y_pred))
             m_dict = m.to_dict()
-            score = m_dict["r2"] if scoring in ("auto", "r2") else m_dict["mae"]
+            if scoring == AUTO_METRIC:
+                score = m_dict["r2"]
+            else:
+                score = m_dict.get(scoring)
             fold_metrics.append(
                 {
                     "fold": fold_idx + 1,

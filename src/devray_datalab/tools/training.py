@@ -13,6 +13,13 @@ from mcp.types import TextContent
 from devray_datalab.config import DevRayConfig
 from devray_datalab.core.evaluator import cross_validate_with_preprocessing
 from devray_datalab.core.experiments import ExperimentStore
+from devray_datalab.core.metric_policy import (
+    AUTO_METRIC,
+    CLASSIFICATION_METRICS,
+    REGRESSION_METRICS,
+    direction_for_metric,
+    resolve_metric,
+)
 from devray_datalab.core.preprocessing import build_preprocessor
 from devray_datalab.core.splits import (
     SplitStore,
@@ -379,7 +386,7 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
         return _err(exc.message, exc.code)
 
     models_arg = arguments.get("models")
-    metric = str(arguments.get("metric", "auto"))
+    metric_arg = str(arguments.get("metric", "auto"))
     test_size = float(arguments.get("test_size", 0.2))
     try:
         validate_probability(test_size, "test_size")
@@ -430,10 +437,24 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
             return _err("Manifest has no train/validation rows for comparison.", "validation_error")
         df = df.iloc[cv_indices].reset_index(drop=True)
 
+    # Resolve the selection objective before any model is scored. ``auto``
+    # resolves to ROC-AUC for binary classification, F1 for multiclass, and
+    # R² for regression; unknown metrics are rejected before fitting.
     if task_type == "classification":
         model_names = list(CLASSIFICATION_MODELS.keys())
+        _n_classes = int(df[target_column].nunique())
     else:
         model_names = list(REGRESSION_MODELS.keys())
+        _n_classes = None
+    if metric_arg != AUTO_METRIC:
+        _allowed = CLASSIFICATION_METRICS if task_type == "classification" else REGRESSION_METRICS
+        if metric_arg not in _allowed:
+            return _err(
+                f"Unsupported metric '{metric_arg}' for task type '{task_type}'.",
+                "validation_error",
+            )
+    metric = resolve_metric(task_type, metric_arg, _n_classes)
+    _selection_direction = direction_for_metric(task_type, metric)
     if models_arg:
         model_names = [m for m in models_arg if m in model_names]
     if not model_names:
@@ -489,6 +510,7 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
                 random_state=random_state,
                 group_column=manifest.group_column if manifest is not None else None,
                 time_column=manifest.time_column if manifest is not None else None,
+                scoring=metric,
                 exclude_columns=exclude_columns,
             )
         except (TrainingError, ValidationError) as exc:
@@ -553,25 +575,30 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
         except Exception:  # noqa: BLE001 - recording must not fail the tool
             pass
 
-    # Select best model.
+    # Select best model using the resolved objective and its direction: losses
+    # are minimized, everything else is maximized. Reported metric values keep
+    # their natural sign (losses are never negated).
     completed = [r for r in results if r["status"] == "completed"]
     best = None
     if completed:
-        if metric == "auto":
-            if task_type == "classification":
-                # Prefer ROC-AUC if available, else F1, else accuracy.
-                for key in ("roc_auc", "f1", "accuracy"):
-                    if key in completed[0]["metrics"] and completed[0]["metrics"][key] is not None:
-                        metric = key
-                        break
-                else:
-                    metric = "accuracy"
-        best = max(
-            completed,
-            key=lambda r: (
-                r["metrics"].get(metric) if r["metrics"].get(metric) is not None else float("-inf")
-            ),
-        )
+        if _selection_direction == "minimize":
+            best = min(
+                completed,
+                key=lambda r: (
+                    r["metrics"].get(metric)
+                    if r["metrics"].get(metric) is not None
+                    else float("inf")
+                ),
+            )
+        else:
+            best = max(
+                completed,
+                key=lambda r: (
+                    r["metrics"].get(metric)
+                    if r["metrics"].get(metric) is not None
+                    else float("-inf")
+                ),
+            )
 
     return _ok(
         {

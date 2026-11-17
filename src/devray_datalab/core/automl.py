@@ -17,6 +17,13 @@ import numpy as np
 import pandas as pd
 
 from devray_datalab.core.evaluator import cross_validate_with_preprocessing
+from devray_datalab.core.metric_policy import (
+    AUTO_METRIC,
+    CLASSIFICATION_METRICS,
+    REGRESSION_METRICS,
+    direction_for_metric,
+    resolve_metric,
+)
 from devray_datalab.core.trainer import (
     CLASSIFICATION_MODELS,
     REGRESSION_MODELS,
@@ -200,32 +207,12 @@ def _optuna_suggest(trial: Any, model_cls: Any, task_type: str) -> dict[str, Any
     return params
 
 
-def _score_for_metric(metrics: dict[str, Any], metric: str) -> float | None:
-    """Extract the optimization score from a CV metrics dict."""
-    if metric == "auto":
-        # Prefer roc_auc (classification) / r2 (regression), else f1 / mae.
-        if metrics.get("roc_auc") is not None:
-            return metrics["roc_auc"]
-        if metrics.get("r2") is not None:
-            return metrics["r2"]
-        if metrics.get("f1") is not None:
-            return metrics["f1"]
-        if metrics.get("mae") is not None:
-            return -metrics["mae"]
-        return None
-    if metric in metrics:
-        val = metrics[metric]
-        # Error-like metrics: minimize -> negate for maximization consistency.
-        if metric in ("mae", "rmse", "log_loss", "median_absolute_error"):
-            return -val if val is not None else None
-        return val
-    return None
-
-
-def _direction_for_metric(metric: str) -> str:
-    if metric in ("mae", "rmse", "log_loss", "median_absolute_error"):
-        return "minimize"
-    return "maximize"
+def _mean_fold_score(cv, metric: str) -> float:
+    """Mean CV value for a metric, natural sign (losses are not negated)."""
+    vals = [fm.get(metric) for fm in cv.fold_metrics if fm.get(metric) is not None]
+    if not vals:
+        return float("nan")
+    return float(np.mean(vals))
 
 
 def run_automl(
@@ -264,6 +251,19 @@ def run_automl(
     if max_trials > 50:
         raise ValidationError("max_trials must not exceed 50.")
 
+    # Resolve and validate the objective up front so unknown metrics are
+    # rejected before any fitting occurs. ``auto`` resolves to a documented,
+    # task-appropriate metric: ROC-AUC (binary classification), F1
+    # (multiclass classification) or R² (regression).
+    if metric != AUTO_METRIC:
+        allowed = CLASSIFICATION_METRICS if task_type == "classification" else REGRESSION_METRICS
+        if metric not in allowed:
+            raise ValidationError(f"Unsupported metric '{metric}' for task type '{task_type}'.")
+    y = df[target_column]
+    n_classes = int(y.nunique()) if task_type == "classification" else None
+    resolved_metric = resolve_metric(task_type, metric, n_classes)
+    direction = direction_for_metric(task_type, resolved_metric)
+
     start = _time.time()
 
     candidates = _default_models(task_type)
@@ -271,9 +271,6 @@ def run_automl(
         candidates = {k: v for k, v in candidates.items() if k in model_subset}
     if not candidates:
         raise ValidationError("No candidate models selected.")
-
-    y = df[target_column]
-    n_classes = int(y.nunique()) if task_type == "classification" else None
 
     exclude_columns = exclude_columns or []
     strategy = cv_strategy or ("stratified" if task_type == "classification" else "kfold")
@@ -286,14 +283,13 @@ def run_automl(
 
     result = AutoMLResult(
         task_type=task_type,
-        metric=metric,
+        metric=resolved_metric,
         dataset_shape=(int(len(df)), n_features_after_exclusion),
         n_features=n_features_after_exclusion,
         n_classes=n_classes,
     )
 
     trials: list[TrialResult] = []
-    direction = _direction_for_metric(metric)
 
     # Phase 1: train each candidate with CV. Enforce the max_trials cap.
     trials_run = 0
@@ -316,28 +312,20 @@ def run_automl(
                 random_state=random_state,
                 group_column=group_column,
                 time_column=time_column,
-                scoring=metric if metric != "auto" else "auto",
+                scoring=resolved_metric,
                 exclude_columns=exclude_columns,
             )
-            # Aggregate mean of the primary metric across folds.
-            key = (
-                metric
-                if metric != "auto"
-                else ("roc_auc" if task_type == "classification" else "r2")
-            )
-            vals = [fm.get(key) for fm in cv.fold_metrics if fm.get(key) is not None]
-            mean_val = float(np.mean(vals)) if vals else float("nan")
-            std_val = float(np.std(vals)) if vals else float("nan")
-            if metric in ("mae", "rmse", "log_loss", "median_absolute_error"):
-                score_for_rank = -mean_val
-            else:
-                score_for_rank = mean_val
+            mean_val = _mean_fold_score(cv, resolved_metric)
+            fold_vals = [
+                fm[resolved_metric] for fm in cv.fold_metrics if fm.get(resolved_metric) is not None
+            ]
+            std_val = float(np.std(fold_vals)) if fold_vals else float("nan")
             trials.append(
                 TrialResult(
                     model=model_name,
                     params={},
-                    metric=key if metric == "auto" else metric,
-                    value=score_for_rank,
+                    metric=resolved_metric,
+                    value=mean_val,
                     std=std_val,
                     n_folds=cv.n_folds,
                     runtime_seconds=_time.time() - trial_start,
@@ -348,7 +336,7 @@ def run_automl(
                 TrialResult(
                     model=model_name,
                     params={},
-                    metric=metric,
+                    metric=resolved_metric,
                     value=float("nan"),
                     std=float("nan"),
                     n_folds=0,
@@ -362,9 +350,9 @@ def run_automl(
     valid_trials = [t for t in trials if t.error is None and t.value == t.value]
     if valid_trials and _OPTUNA_AVAILABLE and max_trials > len(trials):
         best_trial = (
-            max(valid_trials, key=lambda t: t.value)
-            if direction == "maximize"
-            else min(valid_trials, key=lambda t: t.value)
+            min(valid_trials, key=lambda t: t.value)
+            if direction == "minimize"
+            else max(valid_trials, key=lambda t: t.value)
         )
         model_cls = candidates[best_trial.model]
 
@@ -382,19 +370,10 @@ def run_automl(
                     random_state=random_state,
                     group_column=group_column,
                     time_column=time_column,
-                    scoring=metric if metric != "auto" else "auto",
+                    scoring=resolved_metric,
                     exclude_columns=exclude_columns,
                 )
-                key = (
-                    metric
-                    if metric != "auto"
-                    else ("roc_auc" if task_type == "classification" else "r2")
-                )
-                vals = [fm.get(key) for fm in cv.fold_metrics if fm.get(key) is not None]
-                val = float(np.mean(vals)) if vals else float("nan")
-                if metric in ("mae", "rmse", "log_loss", "median_absolute_error"):
-                    return -val
-                return val
+                return _mean_fold_score(cv, resolved_metric)
             except Exception:  # noqa: BLE001
                 return float("nan")
 
@@ -406,14 +385,12 @@ def run_automl(
         best = study.best_trial
         best_params = best.params
         best_value = best.value
-        if metric in ("mae", "rmse", "log_loss", "median_absolute_error"):
-            best_value = -best_value
         best_model = best_trial.model
     elif valid_trials:
         best_trial = (
-            max(valid_trials, key=lambda t: t.value)
-            if direction == "maximize"
-            else min(valid_trials, key=lambda t: t.value)
+            min(valid_trials, key=lambda t: t.value)
+            if direction == "minimize"
+            else max(valid_trials, key=lambda t: t.value)
         )
         best_model = best_trial.model
         best_params = {}
@@ -422,6 +399,15 @@ def run_automl(
         best_model = None
         best_params = None
         best_value = None
+
+    # Rank trials consistently with the declared objective: losses ascending,
+    # everything else descending. Failed (non-finite) trials sort last.
+    def _rank_key(t: TrialResult) -> float:
+        if t.value is None or t.value != t.value:
+            return float("inf") if direction == "minimize" else float("-inf")
+        return t.value
+
+    trials.sort(key=_rank_key, reverse=(direction == "maximize"))
 
     result.trials = trials
     result.best_model = best_model
