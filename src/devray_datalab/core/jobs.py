@@ -41,6 +41,7 @@ class JobInfo:
     started_at: float | None = None
     completed_at: float | None = None
     cancel_requested: bool = field(default=False, init=False)
+    _params: dict[str, Any] | None = field(default=None, init=False)
 
 
 class JobManager:
@@ -112,8 +113,8 @@ class JobManager:
                 self._active = max(0, self._active - 1)
 
     def _run_training(self, job: JobInfo) -> dict[str, Any]:
-        # Extract training params stored in job.result metadata before run.
-        params = job.result or {}
+        # Extract training params stored separately from the public result.
+        params = job._params or {}
         return self.trainer.train_baseline(
             df=params["df"],
             target_column=params["target_column"],
@@ -145,8 +146,9 @@ class JobManager:
         job = JobInfo(job_id=job_id)
         with self._lock:
             self._jobs[job_id] = job
-            # Stash params on the (initially empty) result dict for the worker.
-            job.result = {
+            # Stash training params separately from the public result so the
+            # raw dataset is never exposed through job status.
+            job._params = {
                 "df": df,
                 "target_column": target_column,
                 "task_type": task_type,

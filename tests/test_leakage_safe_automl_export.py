@@ -101,15 +101,13 @@ def test_automl_excludes_columns(config):
         )
     )
     data = _data(result)
-    assert len(data["trials"]) == 5
+    assert len(data["trials"]) == 3
     completed = [t for t in data["trials"] if t["error"] is None]
     assert len(completed) >= 1
     assert {t["model"] for t in data["trials"]} == {
         "logistic_regression",
         "decision_tree",
         "random_forest",
-        "extra_trees",
-        "knn",
     }
     assert data["best_model"] is not None
 

@@ -14,7 +14,10 @@ from devray_datalab.config import DevRayConfig
 from devray_datalab.core.evaluator import cross_validate_with_preprocessing
 from devray_datalab.core.experiments import ExperimentStore
 from devray_datalab.core.preprocessing import build_preprocessor
-from devray_datalab.core.splits import SplitStore, _dataset_fingerprint
+from devray_datalab.core.splits import (
+    SplitStore,
+    validate_manifest_for_consumption,
+)
 from devray_datalab.core.trainer import (
     CLASSIFICATION_MODELS,
     REGRESSION_MODELS,
@@ -24,7 +27,12 @@ from devray_datalab.core.trainer import (
 from devray_datalab.tools.storage import (
     save_artifact,
 )
-from devray_datalab.utils.errors import DevRayError, TrainingError, ValidationError
+from devray_datalab.utils.errors import (
+    DevRayError,
+    TrainingError,
+    ValidationError,
+    sanitize_for_json,
+)
 from devray_datalab.utils.validation import (
     validate_model_name,
     validate_probability,
@@ -35,7 +43,7 @@ from devray_datalab.utils.validation import (
 def _json(data: Any) -> str:
     import json
 
-    return json.dumps(data, default=str)
+    return json.dumps(sanitize_for_json(data), default=str, allow_nan=False)
 
 
 def _ok(data: Any) -> list[TextContent]:
@@ -299,6 +307,26 @@ async def train_baseline_tool(config: DevRayConfig, arguments: dict) -> list[Tex
     except Exception as exc:  # noqa: BLE001
         return _err(f"Failed to load dataset: {exc}", "dataset_error")
 
+    # QA-001: enforce shared mandatory manifest validation before any
+    # indexing, preprocessing, fitting, or model selection.
+    if split_manifest_id:
+        try:
+            manifest_validation = validate_manifest_for_consumption(
+                config=config,
+                manifest_id=str(split_manifest_id),
+                df=df,
+                dataset_name=str(name),
+            )
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+        except Exception as exc:  # noqa: BLE001
+            return _err(f"Manifest validation failed: {exc}", "split_error")
+        if not manifest_validation["valid"]:
+            return _err(
+                "Invalid split manifest: " + "; ".join(manifest_validation["errors"]),
+                "validation_error",
+            )
+
     trainer = _get_trainer(config)
     try:
         result = trainer.train_baseline(
@@ -375,20 +403,28 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
     except Exception as exc:  # noqa: BLE001
         return _err(f"Failed to load dataset: {exc}", "dataset_error")
 
-    # When a validated split manifest is supplied, restrict cross-validation
-    # (and hyperparameter selection) to train+val rows only. The protected
-    # test holdout is never used for training, preprocessing, CV, or tuning.
+    # QA-001: enforce shared mandatory manifest validation before any
+    # indexing, preprocessing, CV, fitting, or model selection.
     manifest = None
     if split_manifest_id:
-        store = SplitStore(config)
-        manifest = store.load(split_manifest_id)
-        if manifest is None:
-            return _err(f"Split manifest not found: {split_manifest_id}", "validation_error")
-        if manifest.dataset_fingerprint != _dataset_fingerprint(df):
+        try:
+            manifest_validation = validate_manifest_for_consumption(
+                config=config,
+                manifest_id=str(split_manifest_id),
+                df=df,
+                dataset_name=str(name),
+            )
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+        except Exception as exc:  # noqa: BLE001
+            return _err(f"Manifest validation failed: {exc}", "split_error")
+        if not manifest_validation["valid"]:
             return _err(
-                "Dataset fingerprint mismatch: dataset changed since the manifest was created.",
+                "Invalid split manifest: " + "; ".join(manifest_validation["errors"]),
                 "validation_error",
             )
+        store = SplitStore(config)
+        manifest = store.load(str(split_manifest_id))
         cv_indices = list(manifest.train_indices) + list(manifest.val_indices)
         if not cv_indices:
             return _err("Manifest has no train/validation rows for comparison.", "validation_error")
@@ -405,8 +441,22 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
 
     from devray_datalab.utils.errors import TrainingError
 
-    # Determine CV strategy: stratification for classification, KFold for regression.
-    cv_strategy = "stratified" if task_type == "classification" else "kfold"
+    # QA-003: derive CV strategy from manifest split type. Chronological
+    # manifests use forward-chaining temporal CV; group manifests use
+    # group-aware CV; stratified/random manifests use existing strategies.
+    # No protected-test rows appear in any CV fold (already restricted to
+    # train+val above).
+    if manifest is not None:
+        if manifest.split_type == "time":
+            cv_strategy = "timeseries"
+        elif manifest.split_type == "group":
+            cv_strategy = "group"
+        elif manifest.split_type == "stratified":
+            cv_strategy = "stratified"
+        else:
+            cv_strategy = "kfold"
+    else:
+        cv_strategy = "stratified" if task_type == "classification" else "kfold"
 
     results: list[dict[str, Any]] = []
 
@@ -437,6 +487,8 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
                 strategy=cv_strategy,
                 n_splits=cv,
                 random_state=random_state,
+                group_column=manifest.group_column if manifest is not None else None,
+                time_column=manifest.time_column if manifest is not None else None,
                 exclude_columns=exclude_columns,
             )
         except (TrainingError, ValidationError) as exc:

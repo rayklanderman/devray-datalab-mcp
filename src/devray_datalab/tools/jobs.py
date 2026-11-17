@@ -12,14 +12,15 @@ from mcp.types import TextContent
 
 from devray_datalab.config import DevRayConfig
 from devray_datalab.core.jobs import JobManager
+from devray_datalab.core.splits import validate_manifest_for_consumption
 from devray_datalab.tools import training
-from devray_datalab.utils.errors import DevRayError
+from devray_datalab.utils.errors import DevRayError, sanitize_for_json
 
 
 def _json(data: Any) -> str:
     import json
 
-    return json.dumps(data, default=str)
+    return json.dumps(sanitize_for_json(data), default=str, allow_nan=False)
 
 
 def _ok(data: Any) -> list[TextContent]:
@@ -88,6 +89,26 @@ async def start_training_job_tool(
             return _err(f"Failed to load dataset: {exc}", "dataset_error")
     except DevRayError as exc:
         return _err(exc.message, exc.code)
+
+    # QA-001: enforce shared mandatory manifest validation before submitting
+    # a background job. Invalid manifests must fail without executing training.
+    if split_manifest_id:
+        try:
+            manifest_validation = validate_manifest_for_consumption(
+                config=config,
+                manifest_id=str(split_manifest_id),
+                df=df,
+                dataset_name=str(name),
+            )
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+        except Exception as exc:  # noqa: BLE001
+            return _err(f"Manifest validation failed: {exc}", "split_error")
+        if not manifest_validation["valid"]:
+            return _err(
+                "Invalid split manifest: " + "; ".join(manifest_validation["errors"]),
+                "validation_error",
+            )
 
     manager = _get_manager(config)
     job_id = manager.submit(

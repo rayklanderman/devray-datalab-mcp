@@ -20,6 +20,7 @@ from devray_datalab.core.evaluator import cross_validate_with_preprocessing
 from devray_datalab.core.trainer import (
     CLASSIFICATION_MODELS,
     REGRESSION_MODELS,
+    _model_init_kwargs,
 )
 from devray_datalab.utils.errors import ValidationError
 
@@ -239,6 +240,8 @@ def run_automl(
     n_splits: int = 3,
     exclude_columns: list[str] | None = None,
     cv_strategy: str | None = None,
+    group_column: str | None = None,
+    time_column: str | None = None,
 ) -> AutoMLResult:
     """Run an automated machine learning search.
 
@@ -286,10 +289,14 @@ def run_automl(
     trials: list[TrialResult] = []
     direction = _direction_for_metric(metric)
 
-    # Phase 1: train each candidate with CV.
+    # Phase 1: train each candidate with CV. Enforce the max_trials cap.
+    trials_run = 0
     for model_name, model_cls in candidates.items():
+        if trials_run >= max_trials:
+            break
         if _time.time() - start > max_time_seconds:
             break
+        trials_run += 1
         trial_start = _time.time()
         try:
             cv = cross_validate_with_preprocessing(
@@ -297,10 +304,12 @@ def run_automl(
                 target_column=target_column,
                 task_type=task_type,
                 model_cls=model_cls,
-                model_kwargs={},
+                model_kwargs=_model_init_kwargs(model_cls, random_state),
                 strategy=strategy,
                 n_splits=n_splits,
                 random_state=random_state,
+                group_column=group_column,
+                time_column=time_column,
                 scoring=metric if metric != "auto" else "auto",
                 exclude_columns=exclude_columns,
             )

@@ -25,6 +25,7 @@ from mcp.types import (
 )
 
 from devray_datalab.config import DevRayConfig
+from devray_datalab.utils.errors import sanitize_for_json
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,7 +36,7 @@ logger = logging.getLogger("devray_datalab")
 
 
 def _json(data: Any) -> str:
-    return json.dumps(data, default=str)
+    return json.dumps(sanitize_for_json(data), default=str, allow_nan=False)
 
 
 def _ok(data: Any) -> str:

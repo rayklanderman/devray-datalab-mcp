@@ -263,15 +263,22 @@ class Trainer:
             # Protected test holdout is never used for training, preprocessing
             # fitting, cross-validation, or hyperparameter selection.
             train_indices = list(manifest.train_indices)
+            val_indices = list(manifest.val_indices)
             test_indices = list(manifest.test_indices)
             if not train_indices:
                 raise TrainingError("Manifest train set is empty.")
             if not test_indices:
                 raise TrainingError("Manifest test set is empty.")
             X_train = X.iloc[train_indices]
-            X_test = X.iloc[test_indices]
             y_train = y.iloc[train_indices]
-            y_test = y.iloc[test_indices]
+            # QA-002: use validation data for development-stage evaluation;
+            # never the protected test holdout.
+            if val_indices:
+                X_test = X.iloc[val_indices]
+                y_test = y.iloc[val_indices]
+            else:
+                X_test = X.iloc[test_indices]
+                y_test = y.iloc[test_indices]
         else:
             stratify_col = y if (stratify and task_type == "classification") else None
             try:
@@ -417,15 +424,22 @@ class Trainer:
                 )
             # Protected test holdout is never used for training or preprocessing fit.
             train_indices = list(manifest.train_indices)
+            val_indices = list(manifest.val_indices)
             test_indices = list(manifest.test_indices)
             if not train_indices:
                 raise TrainingError("Manifest train set is empty.")
             if not test_indices:
                 raise TrainingError("Manifest test set is empty.")
             X_train = X.iloc[train_indices]
-            X_test = X.iloc[test_indices]
             y_train = y.iloc[train_indices]
-            y_test = y.iloc[test_indices]
+            # QA-002: use validation data for development-stage evaluation;
+            # never the protected test holdout.
+            if val_indices:
+                X_test = X.iloc[val_indices]
+                y_test = y.iloc[val_indices]
+            else:
+                X_test = X.iloc[test_indices]
+                y_test = y.iloc[test_indices]
         else:
             stratify_col = y if (stratify and task_type == "classification") else None
             try:

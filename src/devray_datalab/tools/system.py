@@ -8,13 +8,13 @@ from mcp.types import TextContent
 
 from devray_datalab.config import DevRayConfig
 from devray_datalab.core.hardware import get_system_info
-from devray_datalab.utils.errors import DevRayError
+from devray_datalab.utils.errors import DevRayError, sanitize_for_json
 
 
 def _json(data: Any) -> str:
     import json
 
-    return json.dumps(data, default=str)
+    return json.dumps(sanitize_for_json(data), default=str, allow_nan=False)
 
 
 def _ok(data: Any) -> list[TextContent]:

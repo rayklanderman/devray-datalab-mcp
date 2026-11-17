@@ -8,14 +8,17 @@ from mcp.types import TextContent
 
 from devray_datalab.config import DevRayConfig
 from devray_datalab.core.automl import run_automl
-from devray_datalab.core.splits import development_rows_from_manifest
-from devray_datalab.utils.errors import DevRayError
+from devray_datalab.core.splits import (
+    development_rows_from_manifest,
+    validate_manifest_for_consumption,
+)
+from devray_datalab.utils.errors import DevRayError, sanitize_for_json
 
 
 def _json(data: Any) -> str:
     import json
 
-    return json.dumps(data, default=str)
+    return json.dumps(sanitize_for_json(data), default=str, allow_nan=False)
 
 
 def _ok(data: Any) -> list[TextContent]:
@@ -69,8 +72,26 @@ async def automl_run_tool(
     exclude_columns = arguments.get("exclude_columns") or []
     split_manifest_id = arguments.get("split_manifest_id")
 
+    # QA-001: enforce shared mandatory manifest validation before any
+    # indexing, preprocessing, CV, fitting, or model selection.
     manifest = None
     if split_manifest_id:
+        try:
+            manifest_validation = validate_manifest_for_consumption(
+                config=config,
+                manifest_id=str(split_manifest_id),
+                df=df,
+                dataset_name=str(name),
+            )
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+        except Exception as exc:  # noqa: BLE001
+            return _err(f"Manifest validation failed: {exc}", "split_error")
+        if not manifest_validation["valid"]:
+            return _err(
+                "Invalid split manifest: " + "; ".join(manifest_validation["errors"]),
+                "validation_error",
+            )
         try:
             df, manifest = development_rows_from_manifest(config, df, split_manifest_id)
         except DevRayError as exc:
@@ -78,7 +99,11 @@ async def automl_run_tool(
     cv_strategy = (
         "timeseries"
         if manifest is not None and manifest.split_type == "time"
-        else ("stratified" if task_type == "classification" else "kfold")
+        else (
+            "group"
+            if manifest is not None and manifest.split_type == "group"
+            else ("stratified" if task_type == "classification" else "kfold")
+        )
     )
 
     try:
@@ -94,6 +119,8 @@ async def automl_run_tool(
             n_splits=n_splits,
             exclude_columns=exclude_columns,
             cv_strategy=cv_strategy,
+            group_column=manifest.group_column if manifest is not None else None,
+            time_column=manifest.time_column if manifest is not None else None,
         )
     except (DevRayError, ValueError) as exc:
         return _err(str(exc), exc.code if isinstance(exc, DevRayError) else "validation_error")
@@ -145,8 +172,26 @@ async def tune_model_tool(
     exclude_columns = arguments.get("exclude_columns") or []
     split_manifest_id = arguments.get("split_manifest_id")
 
+    # QA-001: enforce shared mandatory manifest validation before any
+    # indexing, preprocessing, CV, fitting, or model selection.
     manifest = None
     if split_manifest_id:
+        try:
+            manifest_validation = validate_manifest_for_consumption(
+                config=config,
+                manifest_id=str(split_manifest_id),
+                df=df,
+                dataset_name=str(name),
+            )
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+        except Exception as exc:  # noqa: BLE001
+            return _err(f"Manifest validation failed: {exc}", "split_error")
+        if not manifest_validation["valid"]:
+            return _err(
+                "Invalid split manifest: " + "; ".join(manifest_validation["errors"]),
+                "validation_error",
+            )
         try:
             df, manifest = development_rows_from_manifest(config, df, split_manifest_id)
         except DevRayError as exc:
@@ -154,7 +199,11 @@ async def tune_model_tool(
     cv_strategy = (
         "timeseries"
         if manifest is not None and manifest.split_type == "time"
-        else ("stratified" if task_type == "classification" else "kfold")
+        else (
+            "group"
+            if manifest is not None and manifest.split_type == "group"
+            else ("stratified" if task_type == "classification" else "kfold")
+        )
     )
 
     try:
@@ -170,6 +219,8 @@ async def tune_model_tool(
             n_splits=n_splits,
             exclude_columns=exclude_columns,
             cv_strategy=cv_strategy,
+            group_column=manifest.group_column if manifest is not None else None,
+            time_column=manifest.time_column if manifest is not None else None,
         )
     except (DevRayError, ValueError) as exc:
         return _err(str(exc), exc.code if isinstance(exc, DevRayError) else "validation_error")
@@ -231,8 +282,26 @@ async def get_model_leaderboard_tool(
     exclude_columns = arguments.get("exclude_columns") or []
     split_manifest_id = arguments.get("split_manifest_id")
 
+    # QA-001: enforce shared mandatory manifest validation before any
+    # indexing, preprocessing, CV, fitting, or model selection.
     manifest = None
     if split_manifest_id:
+        try:
+            manifest_validation = validate_manifest_for_consumption(
+                config=config,
+                manifest_id=str(split_manifest_id),
+                df=df,
+                dataset_name=str(name),
+            )
+        except DevRayError as exc:
+            return _err(exc.message, exc.code)
+        except Exception as exc:  # noqa: BLE001
+            return _err(f"Manifest validation failed: {exc}", "split_error")
+        if not manifest_validation["valid"]:
+            return _err(
+                "Invalid split manifest: " + "; ".join(manifest_validation["errors"]),
+                "validation_error",
+            )
         try:
             df, manifest = development_rows_from_manifest(config, df, split_manifest_id)
         except DevRayError as exc:
@@ -240,7 +309,11 @@ async def get_model_leaderboard_tool(
     cv_strategy = (
         "timeseries"
         if manifest is not None and manifest.split_type == "time"
-        else ("stratified" if task_type == "classification" else "kfold")
+        else (
+            "group"
+            if manifest is not None and manifest.split_type == "group"
+            else ("stratified" if task_type == "classification" else "kfold")
+        )
     )
 
     try:
@@ -255,6 +328,8 @@ async def get_model_leaderboard_tool(
             n_splits=n_splits,
             exclude_columns=exclude_columns,
             cv_strategy=cv_strategy,
+            group_column=manifest.group_column if manifest is not None else None,
+            time_column=manifest.time_column if manifest is not None else None,
         )
     except (DevRayError, ValueError) as exc:
         return _err(str(exc), exc.code if isinstance(exc, DevRayError) else "validation_error")

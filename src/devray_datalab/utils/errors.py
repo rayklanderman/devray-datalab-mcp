@@ -1,5 +1,30 @@
 """Custom exceptions for DevRay DataLab MCP."""
 
+from __future__ import annotations
+
+import math
+from typing import Any
+
+
+def sanitize_for_json(data: Any) -> Any:
+    """Recursively convert non-finite numeric values (NaN, Infinity) to None.
+
+    Ensures the output serializes as strict, standards-compliant JSON with no
+    bare NaN or Infinity literals. Finite numbers, strings, booleans, None,
+    lists, and dicts are preserved.
+    """
+    if isinstance(data, float):
+        if math.isnan(data) or math.isinf(data):
+            return None
+        return data
+    if isinstance(data, dict):
+        return {k: sanitize_for_json(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [sanitize_for_json(v) for v in data]
+    if isinstance(data, tuple):
+        return [sanitize_for_json(v) for v in data]
+    return data
+
 
 class DevRayError(Exception):
     """Base exception for all DevRay DataLab errors."""

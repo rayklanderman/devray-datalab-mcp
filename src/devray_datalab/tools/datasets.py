@@ -12,13 +12,13 @@ from devray_datalab.core.loader import (
     load_dataset,
     preview_dataframe,
 )
-from devray_datalab.utils.errors import DevRayError
+from devray_datalab.utils.errors import DevRayError, sanitize_for_json
 
 
 def _json(data: Any) -> str:
     import json
 
-    return json.dumps(data, default=str)
+    return json.dumps(sanitize_for_json(data), default=str, allow_nan=False)
 
 
 def _ok(data: Any) -> list[TextContent]:
@@ -64,11 +64,22 @@ async def inspect_dataset_tool(config: DevRayConfig, arguments: dict) -> list[Te
         return _err(exc.message, exc.code)
 
     max_rows = arguments.get("max_rows", config.max_preview_rows)
-    try:
+    # QA-009: reject unsupported types and invalid ranges with clear errors.
+    # Defaults apply only when the optional parameter is omitted.
+    if max_rows is not None:
+        if isinstance(max_rows, bool) or not isinstance(max_rows, (int, float)):
+            return _err(
+                f"max_rows must be a number, got {type(max_rows).__name__}.",
+                "validation_error",
+            )
         max_rows = int(max_rows)
-    except (TypeError, ValueError):
+        if max_rows < 1 or max_rows > 100:
+            return _err(
+                f"max_rows must be between 1 and 100, got {max_rows}.",
+                "validation_error",
+            )
+    else:
         max_rows = config.max_preview_rows
-    max_rows = max(1, min(max_rows, 100))
 
     delimiter = arguments.get("delimiter")
 

@@ -12,13 +12,13 @@ from devray_datalab.core.splits import (
     list_split_manifests,
     validate_split_manifest,
 )
-from devray_datalab.utils.errors import DevRayError
+from devray_datalab.utils.errors import DevRayError, sanitize_for_json
 
 
 def _json(data: Any) -> str:
     import json
 
-    return json.dumps(data, default=str)
+    return json.dumps(sanitize_for_json(data), default=str, allow_nan=False)
 
 
 def _ok(data: Any) -> list[TextContent]:

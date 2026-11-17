@@ -16,20 +16,20 @@ from devray_datalab.core.preprocessing import (
     learned_categories,
     transform_features,
 )
-from devray_datalab.core.splits import _dataset_fingerprint
+from devray_datalab.core.splits import _dataset_fingerprint, validate_manifest_for_consumption
 from devray_datalab.core.trainer import Trainer
 from devray_datalab.tools.storage import (
     ARTIFAKIND_MODEL,
     load_artifact,
     save_artifact,
 )
-from devray_datalab.utils.errors import DevRayError, ModelError
+from devray_datalab.utils.errors import DevRayError, ModelError, sanitize_for_json
 
 
 def _json(data: Any) -> str:
     import json
 
-    return json.dumps(data, default=str)
+    return json.dumps(sanitize_for_json(data), default=str, allow_nan=False)
 
 
 def _ok(data: Any) -> list[TextContent]:
@@ -154,6 +154,9 @@ async def export_model_tool(config: DevRayConfig, arguments: dict) -> list[TextC
         artifact = bundle.get("preprocessing")
         metrics = bundle.get("metrics")
         train_info = bundle.get("train_info")
+        # QA-008: preserve original dataset fingerprint provenance on re-export.
+        metadata = bundle.get("metadata") or {}
+        dataset_fingerprint = metadata.get("dataset_fingerprint")
     elif dataset_name and target_column and task_type and model_name:
         delimiter = arguments.get("delimiter")
         from devray_datalab.core.loader import load_dataset
@@ -164,6 +167,24 @@ async def export_model_tool(config: DevRayConfig, arguments: dict) -> list[TextC
             return _err(exc.message, exc.code)
         except Exception as exc:  # noqa: BLE001
             return _err(f"Failed to load dataset: {exc}", "dataset_error")
+        # QA-001: enforce shared mandatory manifest validation before training.
+        if split_manifest_id:
+            try:
+                manifest_validation = validate_manifest_for_consumption(
+                    config=config,
+                    manifest_id=str(split_manifest_id),
+                    df=df,
+                    dataset_name=str(dataset_name),
+                )
+            except DevRayError as exc:
+                return _err(exc.message, exc.code)
+            except Exception as exc:  # noqa: BLE001
+                return _err(f"Manifest validation failed: {exc}", "split_error")
+            if not manifest_validation["valid"]:
+                return _err(
+                    "Invalid split manifest: " + "; ".join(manifest_validation["errors"]),
+                    "validation_error",
+                )
         try:
             trainer = Trainer(config)
             result, artifact, model = trainer.train_model_with_artifact(

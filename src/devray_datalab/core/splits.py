@@ -131,6 +131,14 @@ def create_split_manifest(
     holdout that should not be used for training or hyperparameter tuning.
     """
 
+    # QA-004: accept canonical names with backward-compatible aliases.
+    # Advertised: time_series, grouped. Handler canonical: time, group.
+    _SPLIT_TYPE_ALIASES = {
+        "time_series": "time",
+        "grouped": "group",
+    }
+    split_type = _SPLIT_TYPE_ALIASES.get(split_type, split_type)
+
     if split_type not in ("random", "stratified", "group", "time"):
         raise ValidationError(
             f"Invalid split_type '{split_type}'. Use 'random', 'stratified', 'group', or 'time'."
@@ -352,6 +360,140 @@ def development_rows_from_manifest(
         raise ValidationError("Manifest has no train/validation rows.")
 
     return df.iloc[cv_indices].reset_index(drop=True), manifest
+
+
+def validate_manifest_for_consumption(
+    config: DevRayConfig,
+    manifest_id: str,
+    df: pd.DataFrame,
+    dataset_name: str | None = None,
+) -> dict[str, Any]:
+    """Run complete structural validation before any consumer accesses rows.
+
+    Checks fingerprint, index types and bounds, duplicate indices, overlapping
+    partitions, declared partition counts, required coverage, chronological
+    ordering, group separation, and protected-holdout constraints. Invalid
+    manifests must fail safely before training begins.
+    """
+    store = SplitStore(config)
+    manifest = store.load(manifest_id)
+    if manifest is None:
+        raise DatasetError(f"Split manifest not found: {manifest_id}")
+
+    errors: list[str] = []
+
+    # Fingerprint match.
+    current_fp = _dataset_fingerprint(df)
+    if manifest.dataset_fingerprint != current_fp:
+        errors.append(
+            "Dataset fingerprint mismatch: the dataset has changed since the manifest was created."
+        )
+
+    n = len(df)
+    all_idx = (
+        list(manifest.train_indices) + list(manifest.val_indices) + list(manifest.test_indices)
+    )
+
+    # Index types: must be integers, not booleans.
+    non_int = [i for i in all_idx if not isinstance(i, int) or isinstance(i, bool)]
+    if non_int:
+        errors.append(f"Non-integer index(es): {non_int[:10]}")
+
+    # Index bounds.
+    out_of_range = [i for i in all_idx if i < 0 or i >= n]
+    if out_of_range:
+        errors.append(f"Index(es) out of range for dataset with {n} rows: {out_of_range[:10]}")
+
+    train_set = set(manifest.train_indices)
+    val_set = set(manifest.val_indices)
+    test_set = set(manifest.test_indices)
+
+    # Duplicate indices within each partition.
+    for part_name, indices in (
+        ("train", manifest.train_indices),
+        ("val", manifest.val_indices),
+        ("test", manifest.test_indices),
+    ):
+        if len(indices) != len(set(indices)):
+            errors.append(f"Duplicate indices in {part_name} split.")
+
+    # Overlapping partitions.
+    if train_set & val_set:
+        errors.append("Train and validation sets overlap.")
+    if train_set & test_set:
+        errors.append("Train and test sets overlap (protected holdout violated).")
+    if val_set & test_set:
+        errors.append("Validation and test sets overlap (protected holdout violated).")
+
+    # Non-empty partitions.
+    if not train_set:
+        errors.append("Train set is empty.")
+    if not test_set:
+        errors.append("Test set is empty.")
+
+    # Coverage: every index appears in exactly one set.
+    covered = train_set | val_set | test_set
+    if len(covered) != len(all_idx):
+        errors.append("Some indices appear in multiple splits or are missing.")
+
+    # Declared partition counts match actual counts.
+    if manifest.n_train != len(train_set):
+        errors.append(
+            f"Declared n_train={manifest.n_train} does not match actual "
+            f"train count {len(train_set)}."
+        )
+    if manifest.n_val != len(val_set):
+        errors.append(
+            f"Declared n_val={manifest.n_val} does not match actual val count {len(val_set)}."
+        )
+    if manifest.n_test != len(test_set):
+        errors.append(
+            f"Declared n_test={manifest.n_test} does not match actual test count {len(test_set)}."
+        )
+
+    # Chronological ordering for time-based splits: train < val < test.
+    if manifest.split_type == "time":
+        ti = list(manifest.train_indices)
+        vi = list(manifest.val_indices)
+        tei = list(manifest.test_indices)
+        if train_set and val_set and max(ti) >= min(vi):
+            errors.append(
+                "Chronological split violated: training indices must precede validation indices."
+            )
+        if train_set and test_set and max(ti) >= min(tei):
+            errors.append(
+                "Chronological split violated: training indices must precede test indices."
+            )
+        if val_set and test_set and max(vi) >= min(tei):
+            errors.append(
+                "Chronological split violated: validation indices must precede test indices."
+            )
+
+    # Group separation for group-based splits.
+    if manifest.split_type == "group" and manifest.group_column:
+        if manifest.group_column in df.columns:
+            groups = df[manifest.group_column]
+            train_groups = {groups.iloc[i] for i in train_set} if train_set else set()
+            val_groups = {groups.iloc[i] for i in val_set} if val_set else set()
+            test_groups = {groups.iloc[i] for i in test_set} if test_set else set()
+            if train_groups & test_groups:
+                errors.append("Train and test groups overlap (protected holdout violated).")
+            if train_groups & val_groups:
+                errors.append("Train and validation groups overlap.")
+            if val_groups & test_groups:
+                errors.append("Validation and test groups overlap.")
+
+    return {
+        "manifest_id": manifest_id,
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "dataset_fingerprint_match": manifest.dataset_fingerprint == current_fp,
+        "n_train": manifest.n_train,
+        "n_val": manifest.n_val,
+        "n_test": manifest.n_test,
+        "split_type": manifest.split_type,
+        "protected_holdout": manifest.protected_holdout,
+    }
 
 
 def list_split_manifests(config: DevRayConfig) -> list[SplitManifest]:
