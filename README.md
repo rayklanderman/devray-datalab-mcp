@@ -7,8 +7,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![CI](https://github.com/rayklanderman/devray-datalab-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/rayklanderman/devray-datalab-mcp/actions/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-active-green)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.rayklanderman%2Fdevray-datalab-mcp)
-[![DevRay DataLab MCP MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/rayklanderman/devray-datalab-mcp/badges/card.svg)](https://glama.ai/mcp/servers/rayklanderman/devray-datalab-mcp)
-[![DevRay DataLab MCP server](https://mcprush.com/badge/devray-datalab-mcp/card.svg)](https://mcprush.com/to/devray-datalab-mcp?ref=badge)
+[![DevRay DataLab MCP MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/rayklanderman/devray-datalab-mcp/badges/score.svg)](https://glama.ai/mcp/servers/rayklanderman/devray-datalab-mcp)
+[![DevRay DataLab MCP on mcprush](https://mcprush.com/badge/devray-datalab-mcp/score.svg)](https://mcprush.com/to/devray-datalab-mcp?ref=badge)
 [![Transport: stdio](https://img.shields.io/badge/transport-stdio-purple)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.rayklanderman%2Fdevray-datalab-mcp)
 
 <!-- mcp-name: io.github.rayklanderman/devray-datalab-mcp -->
