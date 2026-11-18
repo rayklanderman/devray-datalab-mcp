@@ -7,10 +7,12 @@ registries. Status values are never claimed unless verified.
 
 | Distribution | URL | Version | Status | Verified |
 |---|---|---|---|---|
-| PyPI (production) | https://pypi.org/project/devray-datalab-mcp/ | 0.1.0 | Published | ✅ |
+| PyPI (production) | https://pypi.org/project/devray-datalab-mcp/ | 0.3.2 | Published | ✅ |
 | GitHub repository | https://github.com/rayklanderman/devray-datalab-mcp | — | Public | ✅ |
 | GitHub release v0.1.0 | https://github.com/rayklanderman/devray-datalab-mcp/releases/tag/v0.1.0 | 0.1.0 | Published | ✅ |
-| Official MCP Registry | https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.rayklanderman%2Fdevray-datalab-mcp | 0.1.0 | Active, isLatest | ✅ |
+| Official MCP Registry | https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.rayklanderman%2Fdevray-datalab-mcp | 0.3.2 | Active, isLatest | ✅ |
+
+PyPI and MCP Registry versions verified November 18, 2026. v0.3.4 is a local release candidate.
 
 ## Third-party MCP directories
 

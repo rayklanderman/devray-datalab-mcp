@@ -69,8 +69,9 @@ Configure where datasets and model artifacts live with environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DEVRAY_WORKSPACE_DIR` | `datasets` | Directory containing CSV datasets |
+| `DEVRAY_WORKSPACE_DIR` | `datasets` | Dataset directory on the machine running the server |
 | `DEVRAY_ARTIFACTS_DIR` | `artifacts` | Directory for saved model artifacts |
+| `DEVRAY_EXPERIMENTS_DB_PATH` | `experiments.db` | SQLite experiment database path. Its parent directory must be writable. |
 
 ## MCP client configuration
 
@@ -257,7 +258,7 @@ DevRay DataLab MCP works with any MCP-compatible client that supports stdio tran
 | `compare_models` | Compare multiple algorithms; select best by metric (with cross-validation) | Training |
 | `automl_run` | Run automated ML: train candidates with CV, rank by objective | AutoML |
 | `tune_model` | Tune hyperparameters of a single model with cross-validation | AutoML |
-| `get_model_leaderboard` | Return the ranked leaderboard of an AutoML run | AutoML |
+| `get_model_leaderboard` | Run a fresh AutoML search and return ranked trials and the winner | AutoML |
 | `export_model` | Save model with pipeline, metadata, and schema | Models |
 | `predict` | Generate predictions from a saved local model | Models |
 | `list_experiments` | List recorded training experiments, newest first | Experiments |
@@ -283,6 +284,15 @@ Optional dependencies:
 - `devray-datalab-mcp[explain]` — SHAP explanations
 - `devray-datalab-mcp[parquet]` — Parquet file support (pyarrow)
 - `devray-datalab-mcp[excel]` — Excel file support (openpyxl)
+
+## What's new in v0.3.4
+
+- All 27 tool descriptions explain when to use them, what they return, and where they read or write data.
+- `get_model_leaderboard` now accepts `models`, for example `["decision_tree", "logistic_regression"]` for classification. Omit it for the default candidates. The search evaluates explicit IDs in order within the available budget and ranks completed trials by the selection metric.
+- `automl_run`, `tune_model`, and `get_model_leaderboard` honor explicit CSV delimiters. Install `optuna` into the server's Python environment to enable hyperparameter search. The base install scores the selected candidates with cross-validation.
+- The reliability repairs cover chronological CV, reproducible tuning with a shared deadline, cancellation, model coverage, and prediction validation.
+
+See the [v0.3.4 release notes draft](docs/release-notes-v0.3.4.md) for details.
 
 ## What's new in v0.3.2
 

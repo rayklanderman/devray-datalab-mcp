@@ -273,7 +273,13 @@ def run_automl(
     # Explicitly requested models (model_subset) resolve against the full,
     # task-specific supported model registry instead.
     full_models = CLASSIFICATION_MODELS if task_type == "classification" else REGRESSION_MODELS
-    if model_subset:
+    if model_subset is not None:
+        if not isinstance(model_subset, list) or not model_subset:
+            raise ValidationError("models must be a non-empty list of model names.")
+        if any(not isinstance(model, str) or not model.strip() for model in model_subset):
+            raise ValidationError("models must contain only non-empty strings.")
+        if len(set(model_subset)) != len(model_subset):
+            raise ValidationError("models must not contain duplicate names.")
         unknown = [m for m in model_subset if m not in full_models]
         if unknown:
             raise ValidationError(
@@ -282,7 +288,7 @@ def run_automl(
                 f"Supported: {', '.join(sorted(full_models))}."
             )
         # Preserve the requested order for explicit tuning selections.
-        candidates = {k: full_models[k] for k in model_subset if k in full_models}
+        candidates = {model: full_models[model] for model in model_subset}
     else:
         candidates = _default_models(task_type)
     if not candidates:

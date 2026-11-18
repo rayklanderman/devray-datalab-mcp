@@ -1,6 +1,28 @@
 # Changelog
 
-## [0.3.2] - Ready for release
+## [0.3.4] - Local release candidate
+
+### Added
+
+- `get_model_leaderboard` accepts an optional ordered `models` list of task-specific model IDs.
+  Omitting it uses the existing defaults. Scores determine rank, and ties follow evaluation order.
+
+### Changed
+
+- Clarified the inputs, results, side effects and workflow choices for all 27 MCP tools.
+- Unified the package, registry manifest and MCP initialization version at `0.3.4`.
+
+### Fixed
+
+- AutoML search and leaderboard calls report malformed or unsupported model selections as
+  `validation_error`. AutoML, tuning and leaderboard calls honor the advertised CSV delimiter.
+- Chronological cross-validation preserves timestamp order, including when consuming older split
+  manifests. Candidate evaluation and Optuna share one deadline. Seeded tuning is reproducible,
+  and the winning score and parameters agree with the ranked trials.
+- Cancelled training jobs report cancellation. Explicit tuning accepts the full supported model
+  registry for the task. Invalid prediction artifact identifiers return `validation_error`.
+
+## [0.3.2] - Released
 
 ### Added
 - All 27 MCP tools correctly registered and available via `tools/list`.

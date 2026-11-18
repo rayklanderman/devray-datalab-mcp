@@ -24,6 +24,7 @@ from mcp.types import (
     Tool,
 )
 
+from devray_datalab import __version__
 from devray_datalab.config import DevRayConfig
 from devray_datalab.utils.errors import sanitize_for_json
 
@@ -47,12 +48,52 @@ def _err(message: str, code: str = "error") -> str:
     return _json({"ok": False, "error": {"message": message, "code": code}})
 
 
+_AUTOML_MODEL_SUBSET = {
+    "type": "array",
+    "items": {"type": "string", "minLength": 1, "pattern": r"\S"},
+    "minItems": 1,
+    "uniqueItems": True,
+    "description": (
+        "Ordered task-specific model IDs. Omit for defaults. Both tasks support "
+        "decision_tree, random_forest, extra_trees, hist_gradient_boosting, svm, knn. "
+        "Classification also has logistic_regression; regression has linear_regression and "
+        "ridge_regression. Caps may stop search before all models are scored. Ties retain "
+        "evaluation order."
+    ),
+}
+
+_AUTOML_METRIC = {
+    "type": "string",
+    "description": (
+        "Selection metric. auto (default) uses roc_auc for binary classification, f1 for "
+        "multiclass classification or r2 for regression. Loss metrics rank lowest first."
+    ),
+}
+
+_AUTOML_TIME_BUDGET = {
+    "type": "integer",
+    "description": (
+        "Shared candidate and tuning time budget in seconds (default 600). A trial already "
+        "in progress may finish after the deadline."
+    ),
+}
+
+_AUTOML_DELIMITER = {
+    "type": "string",
+    "description": "CSV delimiter character: comma (,), semicolon (;), tab (\\t) or pipe (|). "
+    "Omit to detect it automatically.",
+}
+
+
 # Tool specs are defined statically (no heavy imports needed).
 # Tool handlers are loaded lazily on first call to keep startup fast.
 _tool_specs: list[Tool] = [
     Tool(
         name="list_datasets",
-        description="List datasets in the configured workspace.",
+        description=(
+            "Discover dataset filenames, formats and sizes in the configured workspace without "
+            "reading rows. Lists CSV, Parquet and Excel files; use inspect_dataset to profile one."
+        ),
         inputSchema={
             "type": "object",
             "properties": {},
@@ -61,7 +102,10 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="list_split_manifests",
-        description="List all stored split manifests, newest first.",
+        description=(
+            "Find stored split manifest IDs and metadata, newest first. Use "
+            "validate_split_manifest to check an ID against the current dataset."
+        ),
         inputSchema={
             "type": "object",
             "properties": {},
@@ -70,7 +114,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="create_split_manifest",
-        description="Create a reproducible train/validation/test split manifest.",
+        description=(
+            "Save reproducible row indices and a dataset fingerprint before training. Pass the "
+            "returned ID as split_manifest_id to compatible training tools; keep test rows out "
+            "of tuning. Use validate_split_manifest to check a saved split without rewriting it."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -84,7 +132,11 @@ _tool_specs: list[Tool] = [
                 },
                 "split_type": {
                     "type": "string",
-                    "description": "Split strategy: random, stratified, grouped, time_series.",
+                    "description": (
+                        "random (default), stratified (pass stratify_column), group (requires "
+                        "group_column), or time (requires time_column or row_order=true). "
+                        "grouped and time_series are aliases."
+                    ),
                 },
                 "test_size": {
                     "type": "number",
@@ -92,7 +144,7 @@ _tool_specs: list[Tool] = [
                 },
                 "val_size": {
                     "type": "number",
-                    "description": "Fraction of data for validation (default 0.0).",
+                    "description": "Validation fraction (default 0); test_size + val_size < 1.",
                 },
                 "random_state": {
                     "type": "integer",
@@ -129,7 +181,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="validate_split_manifest",
-        description="Validate a stored split manifest against a dataset.",
+        description=(
+            "Check a saved manifest against the named workspace dataset before reuse. Returns "
+            "valid and any errors for fingerprint or split mismatches; does not repair the file. "
+            "Find IDs with list_split_manifests."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -148,7 +204,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="inspect_dataset",
-        description="Inspect a CSV dataset (types, missing values, stats, preview).",
+        description=(
+            "Profile a named workspace dataset: shape, column types, missingness, summaries and "
+            "a bounded preview that includes raw values. Use analyze_data_quality for remediation "
+            "recommendations. CSV is built in; Parquet and Excel readers need optional packages."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -158,7 +218,7 @@ _tool_specs: list[Tool] = [
                 },
                 "max_rows": {
                     "type": "integer",
-                    "description": "Max preview rows (default 25, max 100).",
+                    "description": "Preview row count, 1–100. Omit for the server default (25).",
                 },
                 "delimiter": {
                     "type": "string",
@@ -171,7 +231,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="analyze_correlations",
-        description="Compute numerical correlations and strongest pairs.",
+        description=(
+            "Rank numeric column pairs by correlation strength within one dataset. Use Pearson "
+            "for linear association or Spearman for rank association; neither establishes "
+            "causation. For changes between datasets, use analyze_feature_drift."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -182,7 +246,7 @@ _tool_specs: list[Tool] = [
                 },
                 "top_n": {
                     "type": "integer",
-                    "description": "Number of top pairs to return (default 10).",
+                    "description": "Number of strongest pairs, clamped to 1–50 (default 10).",
                 },
                 "delimiter": {
                     "type": "string",
@@ -195,7 +259,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="analyze_data_quality",
-        description="Report data-quality issues and recommendations.",
+        description=(
+            "Check a workspace dataset for missing data, duplicates, constants and other quality "
+            "issues before modeling. Returns recommendations without modifying the dataset. "
+            "Use inspect_dataset for a raw row preview."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -211,7 +279,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="detect_potential_leakage",
-        description="Detect potential data-leakage issues in a dataset.",
+        description=(
+            "Screen a workspace dataset before fitting for potential leakage, such as ID-like "
+            "columns and, when target_column is supplied, predictors suspiciously related to the "
+            "label. These flags need domain review; the dataset is not modified."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -231,7 +303,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="analyze_feature_drift",
-        description="Detect feature drift between reference/current datasets.",
+        description=(
+            "Compare feature distributions in a reference (baseline) and current workspace "
+            "dataset, using shared columns unless a subset is supplied. Reports statistical drift "
+            "flags at alpha without modifying data; use analyze_data_quality for one dataset."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -267,7 +343,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="prepare_dataset",
-        description="Define target and task type; fit preprocessing on train data only.",
+        description=(
+            "Split a named dataset for classification or regression and fit preprocessing "
+            "on training rows only. Saves a preprocessing artifact and returns its handle and "
+            "schema. Training tools fit their own preprocessing."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -305,7 +385,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="train_baseline",
-        description="Train one baseline model and report evaluation metrics.",
+        description=(
+            "Fit one named model and return evaluation metrics and feature metadata. Supply "
+            "a dataset, target and task. Use start_training_job for background evaluation or "
+            "export_model to fit and save a reusable bundle."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -348,7 +432,12 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="compare_models",
-        description="Train and compare multiple models; select best by metric.",
+        description=(
+            "Fit and compare candidate algorithms on a dataset using cross-validation (CV). "
+            "Returns fold metrics and selects a winner by the requested metric. Provide a "
+            "split_manifest_id to reserve its test rows. Records experiments when possible. "
+            "Use compare_experiments for saved metrics or automl_run for hyperparameter search."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -396,7 +485,12 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="export_model",
-        description="Save a trained model with preprocessing pipeline and metadata.",
+        description=(
+            "Write a named local model bundle with fitted preprocessing and feature schema "
+            "for predict. Supply name, target_column, task_type and model_name to train, or "
+            "pass a trusted existing bundle name as model_handle to copy it. Reusing "
+            "artifact_name can overwrite a saved bundle."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -406,7 +500,7 @@ _tool_specs: list[Tool] = [
                 },
                 "model_handle": {
                     "type": "string",
-                    "description": "Handle of a previously trained model.",
+                    "description": "Name of a trusted model bundle already saved as an artifact.",
                 },
                 "name": {
                     "type": "string",
@@ -450,7 +544,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="predict",
-        description="Generate predictions using a previously trained local model.",
+        description=(
+            "Score a feature object or array of feature objects with a trusted local model "
+            "bundle, without fitting. Match feature keys to the stored schema; use "
+            "load_model_handle to inspect it. Never load artifacts from untrusted sources."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -458,7 +556,7 @@ _tool_specs: list[Tool] = [
                     "type": "string",
                     "description": "Name of the exported model artifact.",
                 },
-                "features": {"description": "Feature record(s) to predict on."},
+                "features": {"description": "One feature-name/value object or a list of them."},
             },
             "required": ["artifact_name", "features"],
             "additionalProperties": False,
@@ -466,7 +564,10 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="system_info",
-        description="Detect local CPU, RAM, storage, and GPU resources.",
+        description=(
+            "Check the server's CPU, RAM, storage and detected GPUs before a costly run. "
+            "This does not train or enable GPU acceleration."
+        ),
         inputSchema={
             "type": "object",
             "properties": {},
@@ -475,7 +576,10 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="list_experiments",
-        description="List recorded training experiments, newest first.",
+        description=(
+            "Browse recent persisted experiment records, newest first, to find IDs for "
+            "get_experiment or compare_experiments. Use list_training_jobs for in-process jobs."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -489,7 +593,10 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="get_experiment",
-        description="Get a single recorded experiment by ID.",
+        description=(
+            "Read one saved experiment's metrics and metadata by ID from list_experiments. "
+            "Use compare_experiments for several runs; this does not fit or load a model."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -504,7 +611,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="compare_experiments",
-        description="Compare multiple recorded experiments by ID.",
+        description=(
+            "Compare saved metrics for experiment IDs from list_experiments without retraining. "
+            "Interpret scores only across comparable datasets, splits and metrics; use "
+            "compare_models to run a new comparison on one dataset."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -520,7 +631,10 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="list_models",
-        description="List experiments that produced a model artifact.",
+        description=(
+            "Find experiment records that reference model artifacts and their identifiers. "
+            "Use load_model_handle to confirm a bundle is available and read its schema."
+        ),
         inputSchema={
             "type": "object",
             "properties": {},
@@ -529,7 +643,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="load_model_handle",
-        description="Load a previously exported model artifact by experiment ID or name.",
+        description=(
+            "Inspect feature schema, metrics and metadata from a trusted saved model bundle. "
+            "Supply an artifact_name or an experiment_id with a tracked artifact. This loads "
+            "the bundle but does not score rows; use predict for inference."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -547,7 +665,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="start_training_job",
-        description="Submit a training job and return its id immediately (non-blocking).",
+        description=(
+            "Queue one named model fit and return a job_id without waiting for training. "
+            "Supply a dataset, target and task, then poll get_training_status for results. "
+            "Use train_baseline when you want the metrics in the same call."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -590,7 +712,10 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="get_training_status",
-        description="Return the status and result of a training job.",
+        description=(
+            "Poll a job_id from start_training_job or list_training_jobs for state and any "
+            "available result or error. Job IDs are process-local."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -602,7 +727,11 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="cancel_training_job",
-        description="Request cancellation of a queued or running training job.",
+        description=(
+            "Request cancellation of a queued or running job by job_id. Running work stops "
+            "cooperatively, so poll get_training_status to confirm the terminal state. A request "
+            "does not undo finished work."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -614,7 +743,10 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="list_training_jobs",
-        description="List training jobs, newest first.",
+        description=(
+            "Discover recent jobs in this server process, newest first. Use get_training_status "
+            "for one job's result or list_experiments for persistent run history."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -628,7 +760,12 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="automl_run",
-        description="Run automated ML: train candidate models with CV, rank by objective.",
+        description=(
+            "Run a fresh, synchronous cross-validation search and return ranked trials, winner "
+            "and run metadata. Optionally tune the leading candidate when Optuna and budget "
+            "remain. Provide a split_manifest_id to reserve its test rows. Use tune_model for "
+            "one algorithm. Search returns scores and parameters without saving fitted models."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -641,15 +778,12 @@ _tool_specs: list[Tool] = [
                     "type": "string",
                     "description": "'classification' or 'regression'.",
                 },
-                "metric": {"type": "string", "description": "Selection metric (default auto)."},
+                "metric": _AUTOML_METRIC,
                 "max_trials": {
                     "type": "integer",
-                    "description": "Max models to evaluate (default 10, max 50).",
+                    "description": "Total candidate and tuning trials, 1–50 (default 10).",
                 },
-                "max_time_seconds": {
-                    "type": "integer",
-                    "description": "Max wall-clock seconds (default 600).",
-                },
+                "max_time_seconds": _AUTOML_TIME_BUDGET,
                 "random_state": {
                     "type": "integer",
                     "description": "Random seed (default 42).",
@@ -658,11 +792,7 @@ _tool_specs: list[Tool] = [
                     "type": "integer",
                     "description": "Cross-validation folds (default 3).",
                 },
-                "models": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Subset of models to evaluate.",
-                },
+                "models": _AUTOML_MODEL_SUBSET,
                 "exclude_columns": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -672,10 +802,7 @@ _tool_specs: list[Tool] = [
                     "type": "string",
                     "description": "ID of a validated split manifest to enforce indices.",
                 },
-                "delimiter": {
-                    "type": "string",
-                    "description": "CSV delimiter (comma, semicolon, tab, pipe). Auto.",
-                },
+                "delimiter": _AUTOML_DELIMITER,
             },
             "required": ["name", "target_column", "task_type"],
             "additionalProperties": False,
@@ -683,7 +810,12 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="tune_model",
-        description="Tune hyperparameters of a single model with cross-validation.",
+        description=(
+            "Score one model by cross-validation, then search its hyperparameters if Optuna "
+            "is installed and budget remains. Without Optuna, only the baseline is scored. "
+            "Returns scores and parameters. Use automl_run to search "
+            "across model families."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -697,15 +829,12 @@ _tool_specs: list[Tool] = [
                     "description": "'classification' or 'regression'.",
                 },
                 "model_name": {"type": "string", "description": "Model to tune."},
-                "metric": {"type": "string", "description": "Selection metric (default auto)."},
+                "metric": _AUTOML_METRIC,
                 "max_trials": {
                     "type": "integer",
-                    "description": "Max tuning trials (default 20).",
+                    "description": "Total trials including the baseline, 1–50 (default 20).",
                 },
-                "max_time_seconds": {
-                    "type": "integer",
-                    "description": "Max wall-clock seconds (default 600).",
-                },
+                "max_time_seconds": _AUTOML_TIME_BUDGET,
                 "random_state": {
                     "type": "integer",
                     "description": "Random seed (default 42).",
@@ -723,10 +852,7 @@ _tool_specs: list[Tool] = [
                     "type": "string",
                     "description": "ID of a validated split manifest to enforce indices.",
                 },
-                "delimiter": {
-                    "type": "string",
-                    "description": "CSV delimiter (comma, semicolon, tab, pipe). Auto.",
-                },
+                "delimiter": _AUTOML_DELIMITER,
             },
             "required": ["name", "target_column", "task_type", "model_name"],
             "additionalProperties": False,
@@ -734,7 +860,12 @@ _tool_specs: list[Tool] = [
     ),
     Tool(
         name="get_model_leaderboard",
-        description="Return the ranked leaderboard of an AutoML run.",
+        description=(
+            "Run fresh cross-validation and return ranked trials plus the winner's model "
+            "ID, parameters and score. Pass models to restrict candidates. Use automl_run "
+            "for full run metadata or list_experiments to find saved training records. "
+            "Use export_model to fit and save a model bundle."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -747,15 +878,12 @@ _tool_specs: list[Tool] = [
                     "type": "string",
                     "description": "'classification' or 'regression'.",
                 },
-                "metric": {"type": "string", "description": "Selection metric (default auto)."},
+                "metric": _AUTOML_METRIC,
                 "max_trials": {
                     "type": "integer",
-                    "description": "Max models to evaluate (default 10).",
+                    "description": "Total candidate and tuning trials, 1–50 (default 10).",
                 },
-                "max_time_seconds": {
-                    "type": "integer",
-                    "description": "Max wall-clock seconds (default 600).",
-                },
+                "max_time_seconds": _AUTOML_TIME_BUDGET,
                 "random_state": {
                     "type": "integer",
                     "description": "Random seed (default 42).",
@@ -764,6 +892,7 @@ _tool_specs: list[Tool] = [
                     "type": "integer",
                     "description": "Cross-validation folds (default 3).",
                 },
+                "models": _AUTOML_MODEL_SUBSET,
                 "exclude_columns": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -773,10 +902,7 @@ _tool_specs: list[Tool] = [
                     "type": "string",
                     "description": "ID of a validated split manifest to enforce indices.",
                 },
-                "delimiter": {
-                    "type": "string",
-                    "description": "CSV delimiter (comma, semicolon, tab, pipe). Auto.",
-                },
+                "delimiter": _AUTOML_DELIMITER,
             },
             "required": ["name", "target_column", "task_type"],
             "additionalProperties": False,
@@ -885,14 +1011,13 @@ def build_server(config: DevRayConfig | None = None) -> Server:
 
     server = Server(
         name="devray-datalab-mcp",
-        version="0.3.2",
+        version=__version__,
         title="DevRay DataLab MCP",
         instructions=(
-            "DevRay DataLab MCP is a local-first data science and machine "
-            "learning server. All processing happens on your own computer. "
-            "Use list_datasets, inspect_dataset, analyze_correlations, "
-            "analyze_data_quality, prepare_dataset, train_baseline, "
-            "compare_models, export_model, predict, and system_info."
+            "Local-first data science and machine learning. Processing and file access happen "
+            "where this server runs. Discover workspace filenames with list_datasets, inspect "
+            "the data before fitting, and reserve any test holdout for evaluation. Use only "
+            "trusted saved model artifacts."
         ),
         on_list_tools=list_tools,
         on_call_tool=call_tool_handler,
