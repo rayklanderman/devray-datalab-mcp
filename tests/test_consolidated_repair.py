@@ -20,6 +20,7 @@ import asyncio
 import json
 import random
 import time as _time
+from uuid import UUID
 
 import pandas as pd
 
@@ -958,7 +959,11 @@ def test_aud005_subsequent_job_succeeds_after_cancellation(config, classificatio
     assert manager.get_job(good).status == JobStatus.COMPLETED
 
 
-def test_aud005_tool_queued_cancellation_status_and_list_agree(config, classification_csv):
+def test_aud005_tool_queued_cancellation_status_and_list_agree(
+    config, classification_csv, monkeypatch
+):
+    identifier = UUID("11223344-5566-4dfe-89ab-0123456789ab")
+    monkeypatch.setattr("devray_datalab.core.jobs.uuid.uuid4", lambda: identifier)
     start = _call(
         start_training_job_tool,
         config,
@@ -972,6 +977,7 @@ def test_aud005_tool_queued_cancellation_status_and_list_agree(config, classific
     )
     start_data = _data(start)
     job_id = start_data["job_id"]
+    assert job_id == str(identifier)
     cancel = _call(cancel_training_job_tool, config, {"job_id": job_id})
     assert _data(cancel).get("cancelled") is True
 
@@ -991,7 +997,7 @@ def test_aud005_tool_queued_cancellation_status_and_list_agree(config, classific
     assert job_id in ids
     listed = next(j for j in lst_data["jobs"] if j["job_id"] == job_id)
     assert listed["status"] == "cancelled"
-    assert "df" not in json.dumps(lst_data)
+    assert all("df" not in job for job in lst_data["jobs"])
 
 
 # ---------------------------------------------------------------------------
