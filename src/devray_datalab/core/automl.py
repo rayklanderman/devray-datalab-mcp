@@ -265,10 +265,26 @@ def run_automl(
     direction = direction_for_metric(task_type, resolved_metric)
 
     start = _time.time()
+    # One monotonic deadline governs both candidate evaluation and Optuna tuning
+    # so no new trial is admitted after the public budget expires.
+    deadline = start + max_time_seconds
 
-    candidates = _default_models(task_type)
+    # OPT-006 / AUD-006: default AutoML uses the small default candidate set.
+    # Explicitly requested models (model_subset) resolve against the full,
+    # task-specific supported model registry instead.
+    full_models = CLASSIFICATION_MODELS if task_type == "classification" else REGRESSION_MODELS
     if model_subset:
-        candidates = {k: v for k, v in candidates.items() if k in model_subset}
+        unknown = [m for m in model_subset if m not in full_models]
+        if unknown:
+            raise ValidationError(
+                "Unsupported model(s) for "
+                f"{task_type}: {', '.join(unknown)}. "
+                f"Supported: {', '.join(sorted(full_models))}."
+            )
+        # Preserve the requested order for explicit tuning selections.
+        candidates = {k: full_models[k] for k in model_subset if k in full_models}
+    else:
+        candidates = _default_models(task_type)
     if not candidates:
         raise ValidationError("No candidate models selected.")
 
@@ -296,7 +312,7 @@ def run_automl(
     for model_name, model_cls in candidates.items():
         if trials_run >= max_trials:
             break
-        if _time.time() - start > max_time_seconds:
+        if _time.time() >= deadline:
             break
         trials_run += 1
         trial_start = _time.time()
@@ -345,55 +361,99 @@ def run_automl(
                 )
             )
 
-    # Phase 2: optionally tune the best model with Optuna.
+    # Phase 2: optionally tune the best candidate with Optuna under the same
+    # monotonic deadline as candidate evaluation. Successful evaluations from
+    # both phases share one coherent ledger so an inferior Optuna trial can
+    # never displace a superior candidate.
     optuna_used = False
+    search_trials: list[TrialResult] = []
     valid_trials = [t for t in trials if t.error is None and t.value == t.value]
     if valid_trials and _OPTUNA_AVAILABLE and max_trials > len(trials):
+        remaining = deadline - _time.time()
+        if remaining > 0:
+            phase_best = (
+                min(valid_trials, key=lambda t: t.value)
+                if direction == "minimize"
+                else max(valid_trials, key=lambda t: t.value)
+            )
+            model_cls = candidates[phase_best.model]
+
+            def objective(trial: Any) -> float:
+                params = _optuna_suggest(trial, model_cls, task_type)
+                # Keep optimized parameters distinct from effective estimator
+                # parameters: suggested hyperparameters are merged with the
+                # seeded estimator initialization parameters for fitting.
+                model_kwargs = {
+                    **_model_init_kwargs(model_cls, random_state),
+                    **params,
+                }
+                try:
+                    cv = cross_validate_with_preprocessing(
+                        df=df,
+                        target_column=target_column,
+                        task_type=task_type,
+                        model_cls=model_cls,
+                        model_kwargs=model_kwargs,
+                        strategy=strategy,
+                        n_splits=n_splits,
+                        random_state=random_state,
+                        group_column=group_column,
+                        time_column=time_column,
+                        scoring=resolved_metric,
+                        exclude_columns=exclude_columns,
+                    )
+                    return _mean_fold_score(cv, resolved_metric)
+                except Exception:  # noqa: BLE001
+                    return float("nan")
+
+            # Seed the sampler with the requested random state so repeated runs
+            # reproduce the same suggested hyperparameter sequence. Use one
+            # monotonic deadline: no new trial is admitted after it expires;
+            # an already-started fit may complete (cooperative deadline).
+            study = optuna.create_study(
+                direction=direction,
+                sampler=optuna.samplers.TPESampler(seed=random_state),  # type: ignore[attr-defined]
+            )
+            study.optimize(
+                objective,
+                n_trials=max_trials - len(trials),
+                timeout=remaining,  # type: ignore[arg-type]
+            )
+            optuna_used = True
+
+            # Only completed, finite trials enter the shared ledger.
+            for t in study.trials:
+                if (
+                    t.state == optuna.trial.TrialState.COMPLETE
+                    and t.value is not None
+                    and t.value == t.value
+                ):
+                    search_trials.append(
+                        TrialResult(
+                            model=phase_best.model,
+                            params=t.params,
+                            metric=resolved_metric,
+                            value=t.value,
+                            std=float("nan"),
+                            n_folds=n_splits,
+                            runtime_seconds=0.0,
+                        )
+                    )
+
+    # One coherent record of successful evaluated configurations across both
+    # phases. The winner is selected from actual evaluated configurations using
+    # the existing metric-direction policy, so an inferior Optuna trial never
+    # replaces a superior candidate.
+    all_trials = list(trials) + search_trials
+    valid_all = [t for t in all_trials if t.error is None and t.value == t.value]
+    if valid_all:
         best_trial = (
-            min(valid_trials, key=lambda t: t.value)
+            min(valid_all, key=lambda t: t.value)
             if direction == "minimize"
-            else max(valid_trials, key=lambda t: t.value)
-        )
-        model_cls = candidates[best_trial.model]
-
-        def objective(trial: Any) -> float:
-            params = _optuna_suggest(trial, model_cls, task_type)
-            try:
-                cv = cross_validate_with_preprocessing(
-                    df=df,
-                    target_column=target_column,
-                    task_type=task_type,
-                    model_cls=model_cls,
-                    model_kwargs=params,
-                    strategy=strategy,
-                    n_splits=n_splits,
-                    random_state=random_state,
-                    group_column=group_column,
-                    time_column=time_column,
-                    scoring=resolved_metric,
-                    exclude_columns=exclude_columns,
-                )
-                return _mean_fold_score(cv, resolved_metric)
-            except Exception:  # noqa: BLE001
-                return float("nan")
-
-        remaining = max_trials - len(trials)
-        study = optuna.create_study(direction=direction)  # type: ignore[attr-defined]
-        study.optimize(objective, n_trials=remaining)  # type: ignore[attr-defined]
-        optuna_used = True
-
-        best = study.best_trial
-        best_params = best.params
-        best_value = best.value
-        best_model = best_trial.model
-    elif valid_trials:
-        best_trial = (
-            min(valid_trials, key=lambda t: t.value)
-            if direction == "minimize"
-            else max(valid_trials, key=lambda t: t.value)
+            else max(valid_all, key=lambda t: t.value)
         )
         best_model = best_trial.model
-        best_params = {}
+        best_params = best_trial.params
         best_value = best_trial.value
     else:
         best_model = None
@@ -407,9 +467,9 @@ def run_automl(
             return float("inf") if direction == "minimize" else float("-inf")
         return t.value
 
-    trials.sort(key=_rank_key, reverse=(direction == "maximize"))
+    all_trials.sort(key=_rank_key, reverse=(direction == "maximize"))
 
-    result.trials = trials
+    result.trials = all_trials
     result.best_model = best_model
     result.best_params = best_params
     result.best_value = best_value

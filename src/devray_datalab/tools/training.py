@@ -23,6 +23,7 @@ from devray_datalab.core.metric_policy import (
 from devray_datalab.core.preprocessing import build_preprocessor
 from devray_datalab.core.splits import (
     SplitStore,
+    development_rows_from_manifest,
     validate_manifest_for_consumption,
 )
 from devray_datalab.core.trainer import (
@@ -432,10 +433,10 @@ async def compare_models_tool(config: DevRayConfig, arguments: dict) -> list[Tex
             )
         store = SplitStore(config)
         manifest = store.load(str(split_manifest_id))
-        cv_indices = list(manifest.train_indices) + list(manifest.val_indices)
-        if not cv_indices:
-            return _err("Manifest has no train/validation rows for comparison.", "validation_error")
-        df = df.iloc[cv_indices].reset_index(drop=True)
+        # Align comparison with the shared loader so timestamp-based manifests
+        # are consumed in genuine timestamp order (legacy numerically-sorted
+        # manifests are re-ordered here) and the protected holdout is excluded.
+        df, manifest = development_rows_from_manifest(config, df, str(split_manifest_id))
 
     # Resolve the selection objective before any model is scored. ``auto``
     # resolves to ROC-AUC for binary classification, F1 for multiclass, and

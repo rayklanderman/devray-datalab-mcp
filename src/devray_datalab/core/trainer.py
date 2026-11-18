@@ -42,7 +42,12 @@ from devray_datalab.core.preprocessing import (
     transform_features,
 )
 from devray_datalab.core.splits import SplitStore, _dataset_fingerprint
-from devray_datalab.utils.errors import DatasetError, TrainingError, ValidationError
+from devray_datalab.utils.errors import (
+    CancellationError,
+    DatasetError,
+    TrainingError,
+    ValidationError,
+)
 
 
 class JobStatus(str, Enum):
@@ -192,6 +197,10 @@ class Trainer:
             job.progress = 1.0
             job.result = result
             return result
+        except CancellationError as exc:
+            job.status = JobStatus.CANCELLED
+            job.error = str(exc)
+            raise
         except Exception as exc:  # noqa: BLE001
             job.status = JobStatus.FAILED
             job.error = str(exc)
@@ -308,7 +317,7 @@ class Trainer:
 
         job.progress = 0.3
         if job.is_cancel_requested() or (cancel_check and cancel_check()):
-            raise TrainingError("Training cancelled.")
+            raise CancellationError("Training cancelled.")
 
         # Fit preprocessing on training data only. Excluded columns are absent
         # from X_train, so they cannot leak into the fitted preprocessor or model.
@@ -322,7 +331,7 @@ class Trainer:
 
         job.progress = 0.5
         if job.is_cancel_requested() or (cancel_check and cancel_check()):
-            raise TrainingError("Training cancelled.")
+            raise CancellationError("Training cancelled.")
 
         # Train model.
         model = model_cls(**_model_init_kwargs(model_cls, random_state))
@@ -333,7 +342,7 @@ class Trainer:
 
         job.progress = 0.8
         if job.is_cancel_requested() or (cancel_check and cancel_check()):
-            raise TrainingError("Training cancelled.")
+            raise CancellationError("Training cancelled.")
 
         # Evaluate.
         y_pred = model.predict(X_test_t)

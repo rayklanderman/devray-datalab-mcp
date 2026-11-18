@@ -63,6 +63,13 @@ class TrainingError(DevRayError):
         super().__init__(message, code="training_error")
 
 
+class CancellationError(DevRayError):
+    """Raised when a job is cooperatively cancelled and stops successfully."""
+
+    def __init__(self, message: str = "Training cancelled.") -> None:
+        super().__init__(message, code="cancelled")
+
+
 class ModelError(DevRayError):
     """Raised when model export/load/prediction fails."""
 

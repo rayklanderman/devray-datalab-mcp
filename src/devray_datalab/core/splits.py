@@ -330,9 +330,26 @@ def create_split_manifest(
         dataset_fingerprint=_dataset_fingerprint(df),
         created_at=time.time(),
         split_type=split_type,
-        train_indices=sorted(train_indices),
-        val_indices=sorted(val_indices),
-        test_indices=sorted(test_indices),
+        # Preserve genuine chronological ordering for timestamp-based splits
+        # (train earliest, validation middle, test latest). Do not re-sort into
+        # original row-index order, which would destroy timestamp chronology and
+        # leak future observations into training folds downstream. Other split
+        # types keep their numerically sorted index lists for backward compat.
+        train_indices=(
+            train_indices
+            if (split_type == "time" and time_column is not None)
+            else sorted(train_indices)
+        ),
+        val_indices=(
+            val_indices
+            if (split_type == "time" and time_column is not None)
+            else sorted(val_indices)
+        ),
+        test_indices=(
+            test_indices
+            if (split_type == "time" and time_column is not None)
+            else sorted(test_indices)
+        ),
         n_train=len(train_indices),
         n_val=len(val_indices),
         n_test=len(test_indices),
@@ -582,6 +599,19 @@ def development_rows_from_manifest(
     cv_indices = list(manifest.train_indices) + list(manifest.val_indices)
     if not cv_indices:
         raise ValidationError("Manifest has no train/validation rows.")
+
+    # For timestamp-based splits, development rows must be consumed in genuine
+    # timestamp order regardless of how the manifest's index lists were stored
+    # (older manifests may hold numerically sorted indices). This keeps forward
+    # chaining chronological and protects the holdout from leakage.
+    if (
+        manifest.split_type == "time"
+        and manifest.time_column
+        and manifest.time_column in df.columns
+    ):
+        times = _parse_time_column(df[manifest.time_column])
+        # Stable sort preserves manifest order among equal timestamps.
+        cv_indices = sorted(cv_indices, key=lambda i: times.iloc[i])
 
     return df.iloc[cv_indices].reset_index(drop=True), manifest
 

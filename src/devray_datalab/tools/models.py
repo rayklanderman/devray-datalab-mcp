@@ -286,7 +286,7 @@ async def predict_tool(config: DevRayConfig, arguments: dict) -> list[TextConten
 
     try:
         bundle = load_artifact(config, str(artifact_name), kind=ARTIFAKIND_MODEL)
-    except ModelError as exc:
+    except DevRayError as exc:
         return _err(exc.message, exc.code)
 
     if not isinstance(bundle, dict) or "model" not in bundle:

@@ -18,6 +18,7 @@ from typing import Any
 
 from devray_datalab.config import DevRayConfig
 from devray_datalab.core.trainer import Trainer
+from devray_datalab.utils.errors import CancellationError
 
 
 class JobStatus(str, Enum):
@@ -102,6 +103,11 @@ class JobManager:
                 job.status = JobStatus.COMPLETED
                 job.progress = 1.0
                 job.result = result
+                job.completed_at = time.time()
+        except CancellationError as exc:
+            with self._lock:
+                job.status = JobStatus.CANCELLED
+                job.error = str(exc)
                 job.completed_at = time.time()
         except Exception as exc:  # noqa: BLE001
             with self._lock:
