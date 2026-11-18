@@ -424,11 +424,11 @@ class _FakeClock:
     def __init__(self, start: float = 0.0):
         self.t = float(start)
 
-    def time(self) -> float:
+    def monotonic(self) -> float:
         return self.t
 
 
-def _make_fake_cv(clock: _FakeClock, cost: float, eval_starts: list):
+def _make_fake_cv(clock: _FakeClock, cost: float, eval_starts: list, score: float = 0.5):
     def fake_cv(
         df,
         target_column,
@@ -443,14 +443,14 @@ def _make_fake_cv(clock: _FakeClock, cost: float, eval_starts: list):
         scoring="r2",
         exclude_columns=None,
     ):
-        eval_starts.append(clock.time())
+        eval_starts.append(clock.monotonic())
         clock.t += cost
         return CVResult(
             strategy=strategy,
             n_folds=n_splits,
             scoring=scoring,
-            fold_metrics=[{scoring: 0.5}] * n_splits,
-            mean=0.5,
+            fold_metrics=[{scoring: score}] * n_splits,
+            mean=score,
             std=0.0,
             fold_sizes=[10] * n_splits,
             runtime_seconds=0.0,
@@ -467,7 +467,13 @@ def test_opt002_deadline_stops_new_candidates_and_optuna(monkeypatch):
     eval_starts: list = []
     fake_cv = _make_fake_cv(clock, cost=0.4, eval_starts=eval_starts)
     monkeypatch.setattr(am, "cross_validate_with_preprocessing", fake_cv)
-    monkeypatch.setattr("time.time", clock.time)
+    monkeypatch.setattr(am, "monotonic", clock.monotonic)
+    if _OPTUNA_INSTALLED:
+
+        def unexpected_study(**kwargs):
+            raise AssertionError("candidate evaluations exhausted the time budget")
+
+        monkeypatch.setattr(am.optuna, "create_study", unexpected_study)
 
     result = run_automl(
         _small_regression_df(),
@@ -487,6 +493,8 @@ def test_opt002_deadline_stops_new_candidates_and_optuna(monkeypatch):
     assert result.optuna_used is False
     assert len(result.trials) == 3
     assert all(t.params == {} for t in result.trials)
+    assert result.best_value == 0.5
+    assert result.error is None
 
 
 def test_opt002_candidate_exhaustion_before_phase_two(monkeypatch):
@@ -496,7 +504,7 @@ def test_opt002_candidate_exhaustion_before_phase_two(monkeypatch):
     eval_starts: list = []
     fake_cv = _make_fake_cv(clock, cost=0.05, eval_starts=eval_starts)
     monkeypatch.setattr(am, "cross_validate_with_preprocessing", fake_cv)
-    monkeypatch.setattr("time.time", clock.time)
+    monkeypatch.setattr(am, "monotonic", clock.monotonic)
 
     # max_trials=2: phase 1 consumes the cap; Optuna must not add trials.
     result = run_automl(
@@ -521,9 +529,9 @@ def test_opt002_without_optuna_respects_deadline(monkeypatch):
     monkeypatch.setattr(am, "_OPTUNA_AVAILABLE", False)
     clock = _FakeClock(0.0)
     eval_starts: list = []
-    fake_cv = _make_fake_cv(clock, cost=0.4, eval_starts=eval_starts)
+    fake_cv = _make_fake_cv(clock, cost=0.5, eval_starts=eval_starts)
     monkeypatch.setattr(am, "cross_validate_with_preprocessing", fake_cv)
-    monkeypatch.setattr("time.time", clock.time)
+    monkeypatch.setattr(am, "monotonic", clock.monotonic)
 
     result = run_automl(
         _small_regression_df(),
@@ -537,72 +545,134 @@ def test_opt002_without_optuna_respects_deadline(monkeypatch):
     )
 
     assert result.optuna_used is False
-    assert len(result.trials) == 3
-    assert all(t < 1.0 for t in eval_starts)
+    assert len(result.trials) == 2
+    assert eval_starts == [0.0, 0.5]
+    assert result.best_value == 0.5
+    assert result.error is None
 
 
-def test_opt002_optuna_admits_no_trial_after_deadline(monkeypatch):
+def _trace_optuna_studies(monkeypatch, clock, setup_cost, optimize_delay=0.0):
     if not _OPTUNA_INSTALLED:
         import pytest
 
         pytest.skip("optuna not installed")
-    import time as real_time
 
     import devray_datalab.core.automl as am
 
-    eval_starts: list = []
-    cost = 0.1
-    t0 = [0.0]
+    studies = []
+    timeouts = []
+    create_study = am.optuna.create_study
 
-    def slow_cv(
-        df,
-        target_column,
-        task_type,
-        model_cls,
-        model_kwargs,
-        strategy,
-        n_splits,
-        random_state,
-        group_column=None,
-        time_column=None,
-        scoring="r2",
-        exclude_columns=None,
-    ):
-        eval_starts.append(real_time.time() - t0[0])
-        real_time.sleep(cost)
-        return CVResult(
-            strategy=strategy,
-            n_folds=n_splits,
-            scoring=scoring,
-            fold_metrics=[{scoring: 0.5}] * n_splits,
-            mean=0.5,
-            std=0.0,
-            fold_sizes=[10] * n_splits,
-            runtime_seconds=0.0,
-            explanation="x",
-        )
+    def delayed_create_study(**kwargs):
+        clock.t += setup_cost
+        study = create_study(**kwargs)
+        studies.append(study)
+        optimize = study.optimize
 
-    monkeypatch.setattr(am, "cross_validate_with_preprocessing", slow_cv)
+        def delayed_optimize(objective, *, n_trials, timeout):
+            timeouts.append(timeout)
+            clock.t += optimize_delay
+            # Let the real Optuna scheduler run without its relative timeout
+            # so only DataLab can reject a late objective or stop the study.
+            optimize(objective, n_trials=n_trials)
 
-    t0[0] = real_time.time()
-    run_automl(
+        monkeypatch.setattr(study, "optimize", delayed_optimize)
+        return study
+
+    monkeypatch.setattr(am.optuna, "create_study", delayed_create_study)
+    monkeypatch.setattr(am, "monotonic", clock.monotonic)
+    return studies, timeouts
+
+
+def _run_deadline_search():
+    return run_automl(
         _small_regression_df(),
         "target",
         "regression",
         metric="r2",
-        max_trials=50,
+        max_trials=5,
         max_time_seconds=1,
         random_state=42,
+        model_subset=["decision_tree"],
         n_splits=2,
     )
 
-    # Phase 1 runs all six default candidates within budget; Optuna may only
-    # start trials before the deadline. Any trial starting at/after the
-    # deadline reproduces the defect. A small tolerance covers the gap between
-    # the captured clock and run_automl's internal start.
-    assert all(t < 1.01 for t in eval_starts), (
-        f"Optuna trial admitted at/after deadline: {eval_starts}"
+
+def test_opt002_study_setup_can_exhaust_deadline(monkeypatch):
+    import devray_datalab.core.automl as am
+
+    clock = _FakeClock(100.0)
+    eval_starts = []
+    studies, timeouts = _trace_optuna_studies(monkeypatch, clock, setup_cost=0.75)
+    monkeypatch.setattr(
+        am, "cross_validate_with_preprocessing", _make_fake_cv(clock, 0.25, eval_starts)
     )
+
+    result = _run_deadline_search()
+
+    assert eval_starts == [100.0]
+    assert timeouts == []
+    assert studies[0].trials == []
+    assert result.optuna_used is False
+    assert result.best_value == 0.5
+    assert len(result.trials) == 1
+    assert result.error is None
+
+
+def test_opt002_optuna_rejects_objective_at_deadline(monkeypatch):
+    import devray_datalab.core.automl as am
+
+    clock = _FakeClock(100.0)
+    eval_starts = []
+    studies, timeouts = _trace_optuna_studies(
+        monkeypatch, clock, setup_cost=0.25, optimize_delay=0.5
+    )
+    monkeypatch.setattr(
+        am, "cross_validate_with_preprocessing", _make_fake_cv(clock, 0.25, eval_starts)
+    )
+
+    result = _run_deadline_search()
+
+    assert timeouts == [0.5]
+    assert eval_starts == [100.0]
+    [rejected_trial] = studies[0].trials
+    assert rejected_trial.state == TrialState.PRUNED
+    assert rejected_trial.params == {}
+    assert result.best_model == "decision_tree"
+    assert result.best_params == {}
+    assert result.best_value == 0.5
+    assert len(result.trials) == 1
+    assert result.error is None
+
+
+def test_opt002_in_flight_trial_can_finish_after_deadline(monkeypatch):
+    import devray_datalab.core.automl as am
+
+    clock = _FakeClock(100.0)
+    eval_starts = []
+    studies, timeouts = _trace_optuna_studies(monkeypatch, clock, setup_cost=0.125)
+    candidate_cv = _make_fake_cv(clock, 0.25, eval_starts)
+    tuned_cv = _make_fake_cv(clock, 0.75, eval_starts, score=0.75)
+
+    def evaluate(**kwargs):
+        cv = tuned_cv if "max_depth" in kwargs["model_kwargs"] else candidate_cv
+        return cv(**kwargs)
+
+    monkeypatch.setattr(am, "cross_validate_with_preprocessing", evaluate)
+
+    result = _run_deadline_search()
+
+    assert timeouts == [0.625]
+    assert eval_starts == [100.0, 100.375]
+    assert clock.monotonic() == 101.125
+    [completed_trial] = studies[0].trials
+    assert completed_trial.state == TrialState.COMPLETE
+    assert result.optuna_used is True
+    assert [t.value for t in result.trials] == [0.75, 0.5]
+    assert result.best_model == "decision_tree"
+    assert result.best_params == completed_trial.params
+    assert result.best_value == 0.75
+    assert result.error is None
 
 
 # ---------------------------------------------------------------------------

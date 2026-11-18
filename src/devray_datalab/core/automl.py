@@ -4,13 +4,14 @@ Bounds a practical AutoML flow: inspect the dataset, select suitable candidate
 models, train each with leakage-safe cross-validation, rank by objective, and
 (optionally) tune the best model with hyperparameter optimization.
 
-Optuna is used when available for tuned search; otherwise a small deterministic
-grid search is used. All training happens locally on the user's CPU.
+Optuna is used when available for tuned search. Without Optuna, the candidate
+evaluations form the search results. All training happens locally on the user's CPU.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from time import monotonic
 from typing import Any
 
 import numpy as np
@@ -237,8 +238,6 @@ def run_automl(
 
     Never tunes against the protected holdout; all evaluation is via CV.
     """
-    import time as _time
-
     from devray_datalab.utils.validation import validate_task_type
 
     validate_task_type(task_type)
@@ -264,10 +263,11 @@ def run_automl(
     resolved_metric = resolve_metric(task_type, metric, n_classes)
     direction = direction_for_metric(task_type, resolved_metric)
 
-    start = _time.time()
-    # One monotonic deadline governs both candidate evaluation and Optuna tuning
-    # so no new trial is admitted after the public budget expires.
+    start = monotonic()
     deadline = start + max_time_seconds
+
+    def time_remaining(now: float) -> float:
+        return deadline - now
 
     # OPT-006 / AUD-006: default AutoML uses the small default candidate set.
     # Explicitly requested models (model_subset) resolve against the full,
@@ -312,10 +312,10 @@ def run_automl(
     for model_name, model_cls in candidates.items():
         if trials_run >= max_trials:
             break
-        if _time.time() >= deadline:
+        trial_start = monotonic()
+        if time_remaining(trial_start) <= 0:
             break
         trials_run += 1
-        trial_start = _time.time()
         try:
             cv = cross_validate_with_preprocessing(
                 df=df,
@@ -344,7 +344,7 @@ def run_automl(
                     value=mean_val,
                     std=std_val,
                     n_folds=cv.n_folds,
-                    runtime_seconds=_time.time() - trial_start,
+                    runtime_seconds=monotonic() - trial_start,
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -356,7 +356,7 @@ def run_automl(
                     value=float("nan"),
                     std=float("nan"),
                     n_folds=0,
-                    runtime_seconds=_time.time() - trial_start,
+                    runtime_seconds=monotonic() - trial_start,
                     error=str(exc),
                 )
             )
@@ -369,8 +369,7 @@ def run_automl(
     search_trials: list[TrialResult] = []
     valid_trials = [t for t in trials if t.error is None and t.value == t.value]
     if valid_trials and _OPTUNA_AVAILABLE and max_trials > len(trials):
-        remaining = deadline - _time.time()
-        if remaining > 0:
+        if time_remaining(monotonic()) > 0:
             phase_best = (
                 min(valid_trials, key=lambda t: t.value)
                 if direction == "minimize"
@@ -379,6 +378,12 @@ def run_automl(
             model_cls = candidates[phase_best.model]
 
             def objective(trial: Any) -> float:
+                # Optuna's relative timeout starts inside optimize(). Guard the
+                # original deadline before sampling or evaluating a trial.
+                if time_remaining(monotonic()) <= 0:
+                    study.stop()
+                    raise optuna.TrialPruned()
+
                 params = _optuna_suggest(trial, model_cls, task_type)
                 # Keep optimized parameters distinct from effective estimator
                 # parameters: suggested hyperparameters are merged with the
@@ -405,21 +410,24 @@ def run_automl(
                     return _mean_fold_score(cv, resolved_metric)
                 except Exception:  # noqa: BLE001
                     return float("nan")
+                finally:
+                    if time_remaining(monotonic()) <= 0:
+                        study.stop()
 
             # Seed the sampler with the requested random state so repeated runs
-            # reproduce the same suggested hyperparameter sequence. Use one
-            # monotonic deadline: no new trial is admitted after it expires;
-            # an already-started fit may complete (cooperative deadline).
+            # reproduce the same suggested hyperparameter sequence.
             study = optuna.create_study(
                 direction=direction,
                 sampler=optuna.samplers.TPESampler(seed=random_state),  # type: ignore[attr-defined]
             )
-            study.optimize(
-                objective,
-                n_trials=max_trials - len(trials),
-                timeout=remaining,  # type: ignore[arg-type]
-            )
-            optuna_used = True
+            remaining = time_remaining(monotonic())
+            if remaining > 0:
+                study.optimize(
+                    objective,
+                    n_trials=max_trials - len(trials),
+                    timeout=remaining,
+                )
+                optuna_used = True
 
             # Only completed, finite trials enter the shared ledger.
             for t in study.trials:
@@ -473,6 +481,6 @@ def run_automl(
     result.best_model = best_model
     result.best_params = best_params
     result.best_value = best_value
-    result.runtime_seconds = _time.time() - start
+    result.runtime_seconds = monotonic() - start
     result.optuna_used = optuna_used
     return result
